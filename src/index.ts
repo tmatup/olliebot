@@ -21,6 +21,9 @@ import { OpenAIEmbeddingProvider } from './rag/service.js';
 import {
   ToolRunner,
   WebSearchTool,
+  type WebSearchProvider,
+  WebScrapeTool,
+  WikipediaSearchTool,
   TakeScreenshotTool,
   AnalyzeImageTool,
   CreateImageTool,
@@ -30,6 +33,7 @@ import {
 } from './tools/index.js';
 import { TaskManager } from './tasks/index.js';
 import { MemoryService } from './memory/index.js';
+import { UserToolManager } from './tools/user/index.js';
 
 /**
  * Parse MCP server configurations from various formats.
@@ -98,6 +102,7 @@ const CONFIG = {
   dbPath: process.env.DB_PATH || join(process.cwd(), 'user', 'data', 'olliebot.db'),
   configDir: process.env.CONFIG_DIR || join(process.cwd(), 'user', 'tasks'),
   skillsDir: process.env.SKILLS_DIR || join(process.cwd(), 'user', 'skills'),
+  userToolsDir: process.env.USER_TOOLS_DIR || join(process.cwd(), 'user', 'tools'),
 
   // LLM Configuration
   // Supported providers: 'anthropic', 'google', 'openai', 'azure_openai'
@@ -125,6 +130,11 @@ const CONFIG = {
   // Native tool API keys
   imageGenProvider: (process.env.IMAGE_GEN_PROVIDER || 'openai') as 'openai' | 'stability',
   stabilityApiKey: process.env.STABILITY_API_KEY || '',
+
+  // Web search configuration
+  webSearchProvider: (process.env.WEB_SEARCH_PROVIDER || 'serper') as WebSearchProvider,
+  webSearchApiKey: process.env.WEB_SEARCH_API_KEY || '',
+  googleCustomSearchEngineId: process.env.GOOGLE_CUSTOM_SEARCH_ENGINE_ID || '',
 };
 
 function createLLMProvider(provider: string, model: string): LLMProvider {
@@ -330,7 +340,22 @@ async function main(): Promise<void> {
   });
 
   // Register native tools
-  toolRunner.registerNativeTool(new WebSearchTool());
+  toolRunner.registerNativeTool(new WikipediaSearchTool());
+
+  // Web search (requires API key)
+  if (CONFIG.webSearchApiKey) {
+    toolRunner.registerNativeTool(
+      new WebSearchTool({
+        provider: CONFIG.webSearchProvider,
+        apiKey: CONFIG.webSearchApiKey,
+        searchEngineId: CONFIG.googleCustomSearchEngineId || undefined,
+      })
+    );
+    console.log(`[Init] Web search enabled (${CONFIG.webSearchProvider})`);
+  }
+
+  // Web scraping (uses LLM for summarization)
+  toolRunner.registerNativeTool(new WebScrapeTool({ llmService }));
 
   toolRunner.registerNativeTool(new TakeScreenshotTool());
   toolRunner.registerNativeTool(new AnalyzeImageTool(llmService));
@@ -354,6 +379,36 @@ async function main(): Promise<void> {
   // Skill tools (for Agent Skills spec)
   toolRunner.registerNativeTool(new ReadSkillTool(CONFIG.skillsDir));
   toolRunner.registerNativeTool(new RunSkillScriptTool(CONFIG.skillsDir));
+
+  // Initialize User Tool Manager (watches user/tools for .md tool definitions)
+  console.log('[Init] Initializing user tool manager...');
+  const userToolManager = new UserToolManager({
+    toolsDir: CONFIG.userToolsDir,
+    llmService,
+  });
+  await userToolManager.init();
+
+  // Register user-defined tools
+  for (const tool of userToolManager.getToolsForRegistration()) {
+    toolRunner.registerUserTool(tool);
+  }
+
+  // Hot-reload: re-register tools when they change
+  userToolManager.on('tool:updated', (definition) => {
+    const tool = userToolManager.getTool(definition.name);
+    if (tool) {
+      toolRunner.registerUserTool(tool);
+      console.log(`[UserTool] Hot-reloaded: ${definition.name}`);
+    }
+  });
+
+  userToolManager.on('tool:added', (definition) => {
+    const tool = userToolManager.getTool(definition.name);
+    if (tool) {
+      toolRunner.registerUserTool(tool);
+      console.log(`[UserTool] Registered new tool: ${definition.name}`);
+    }
+  });
 
   console.log(`[Init] Tool runner initialized with ${toolRunner.getToolsForLLM().length} tools`);
 
@@ -398,6 +453,7 @@ async function main(): Promise<void> {
       supervisor,
       mcpClient,
       skillManager,
+      toolRunner,
     });
     await server.start();
 
@@ -422,6 +478,7 @@ async function main(): Promise<void> {
     console.log('\n[Shutdown] Gracefully shutting down...');
     await registry.shutdown();
     await taskManager.close();
+    await userToolManager.close();
     await skillManager.close();
     await closeDb();
     console.log('[Shutdown] Complete');

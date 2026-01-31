@@ -6,7 +6,7 @@
  */
 
 // Tool sources (skills are not tools - they're loaded via system prompt)
-export type ToolSource = 'native' | 'mcp';
+export type ToolSource = 'native' | 'mcp' | 'user';
 
 // Tool definition for LLM
 export interface ToolDefinition {

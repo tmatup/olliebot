@@ -29,11 +29,13 @@ export interface ToolRunnerConfig {
 export class ToolRunner {
   private mcpClient: MCPClient | null;
   private nativeTools: Map<string, NativeTool>;
+  private userTools: Map<string, NativeTool>;
   private eventListeners: Set<ToolEventCallback> = new Set();
 
   constructor(config: ToolRunnerConfig = {}) {
     this.mcpClient = config.mcpClient || null;
     this.nativeTools = config.nativeTools || new Map();
+    this.userTools = new Map();
   }
 
   /**
@@ -42,6 +44,14 @@ export class ToolRunner {
   registerNativeTool(tool: NativeTool): void {
     this.nativeTools.set(tool.name, tool);
     console.log(`[ToolRunner] Registered native tool: ${tool.name}`);
+  }
+
+  /**
+   * Register a user-defined tool
+   */
+  registerUserTool(tool: NativeTool): void {
+    this.userTools.set(tool.name, tool);
+    console.log(`[ToolRunner] Registered user tool: ${tool.name}`);
   }
 
   /**
@@ -81,6 +91,15 @@ export class ToolRunner {
       });
     }
 
+    // Add user-defined tools
+    for (const [name, tool] of this.userTools) {
+      tools.push({
+        name: `user__${name}`,
+        description: tool.description,
+        input_schema: tool.inputSchema,
+      });
+    }
+
     // Add MCP tools
     if (this.mcpClient) {
       const mcpTools = this.mcpClient.getToolsForLLM();
@@ -112,6 +131,16 @@ export class ToolRunner {
         name: `native__${name}`,
         description: tool.description,
         source: 'native',
+        inputSchema: tool.inputSchema,
+      });
+    }
+
+    // Add user-defined tools
+    for (const [name, tool] of this.userTools) {
+      tools.push({
+        name: `user__${name}`,
+        description: tool.description,
+        source: 'user',
         inputSchema: tool.inputSchema,
       });
     }
@@ -264,6 +293,19 @@ export class ToolRunner {
         return result.output;
       }
 
+      case 'user': {
+        const userName = toolName.replace('user__', '');
+        const tool = this.userTools.get(userName);
+        if (!tool) {
+          throw new Error(`User tool not found: ${userName}`);
+        }
+        const result = await tool.execute(parameters);
+        if (!result.success) {
+          throw new Error(result.error || 'Tool execution failed');
+        }
+        return result.output;
+      }
+
       case 'mcp': {
         if (!this.mcpClient) {
           throw new Error('MCP client not configured');
@@ -293,6 +335,9 @@ export class ToolRunner {
   parseToolName(fullName: string): { source: ToolSource; name: string } {
     if (fullName.startsWith('native__')) {
       return { source: 'native', name: fullName.replace('native__', '') };
+    }
+    if (fullName.startsWith('user__')) {
+      return { source: 'user', name: fullName.replace('user__', '') };
     }
     // Assume MCP tool (format: serverId__toolName)
     return { source: 'mcp', name: fullName };

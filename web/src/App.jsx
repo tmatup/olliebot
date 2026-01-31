@@ -24,10 +24,13 @@ function App() {
     tasks: false,
     skills: false,
     mcps: false,
+    tools: false,
   });
   const [agentTasks, setAgentTasks] = useState([]);
   const [skills, setSkills] = useState([]);
   const [mcps, setMcps] = useState([]);
+  const [tools, setTools] = useState({ builtin: [], user: [], mcp: {} });
+  const [expandedToolGroups, setExpandedToolGroups] = useState({});
 
   // Actions menu state
   const [openMenuId, setOpenMenuId] = useState(null);
@@ -296,13 +299,14 @@ function App() {
 
     loadConversations();
 
-    // Load agent tasks, skills, and MCPs
+    // Load agent tasks, skills, MCPs, and tools
     const loadSidebarData = async () => {
       try {
-        const [tasksRes, skillsRes, mcpsRes] = await Promise.all([
+        const [tasksRes, skillsRes, mcpsRes, toolsRes] = await Promise.all([
           fetch('/api/tasks').catch(() => ({ ok: false })),
           fetch('/api/skills').catch(() => ({ ok: false })),
           fetch('/api/mcps').catch(() => ({ ok: false })),
+          fetch('/api/tools').catch(() => ({ ok: false })),
         ]);
 
         if (tasksRes.ok) {
@@ -318,6 +322,11 @@ function App() {
         if (mcpsRes.ok) {
           const mcpsData = await mcpsRes.json();
           setMcps(mcpsData);
+        }
+
+        if (toolsRes.ok) {
+          const toolsData = await toolsRes.json();
+          setTools(toolsData);
         }
       } catch {
         // APIs might not be available
@@ -735,6 +744,22 @@ function App() {
     }));
   }, []);
 
+  // Format tool tooltip with description and inputs
+  const formatToolTooltip = useCallback((tool) => {
+    let tooltip = tool.description || tool.name;
+    if (tool.inputs && tool.inputs.length > 0) {
+      tooltip += '\n\nInputs:';
+      for (const input of tool.inputs) {
+        const req = input.required ? '(required)' : '(optional)';
+        tooltip += `\n  • ${input.name}: ${input.type} ${req}`;
+        if (input.description) {
+          tooltip += `\n      ${input.description}`;
+        }
+      }
+    }
+    return tooltip;
+  }, []);
+
   // Toggle tool event expansion
   const toggleToolExpand = useCallback((toolId) => {
     setExpandedTools((prev) => {
@@ -898,6 +923,99 @@ function App() {
                         <span className="skill-name">{skill.name}</span>
                       </div>
                     ))
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Tools Accordion */}
+            <div className="accordion">
+              <button
+                className={`accordion-header ${expandedAccordions.tools ? 'expanded' : ''}`}
+                onClick={() => toggleAccordion('tools')}
+              >
+                <span className="accordion-icon">🔧</span>
+                <span className="accordion-title">Tools</span>
+                <span className="accordion-arrow">{expandedAccordions.tools ? '▼' : '▶'}</span>
+              </button>
+              {expandedAccordions.tools && (
+                <div className="accordion-content tools-tree">
+                  {tools.builtin.length === 0 && tools.user.length === 0 && Object.keys(tools.mcp).length === 0 ? (
+                    <div className="accordion-empty">No tools available</div>
+                  ) : (
+                    <>
+                      {/* Builtin Tools */}
+                      {tools.builtin.length > 0 && (
+                        <div className="tool-group">
+                          <button
+                            className={`tool-group-header ${expandedToolGroups.builtin ? 'expanded' : ''}`}
+                            onClick={() => setExpandedToolGroups(prev => ({ ...prev, builtin: !prev.builtin }))}
+                          >
+                            <span className="tool-group-arrow">{expandedToolGroups.builtin ? '▼' : '▶'}</span>
+                            <span className="tool-group-icon">⚙️</span>
+                            <span className="tool-group-name">Builtin</span>
+                            <span className="tool-group-count">{tools.builtin.length}</span>
+                          </button>
+                          {expandedToolGroups.builtin && (
+                            <div className="tool-group-items">
+                              {tools.builtin.map((tool) => (
+                                <div key={tool.name} className="tool-item" title={formatToolTooltip(tool)}>
+                                  <span className="tool-name">{tool.name}</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* User Defined Tools */}
+                      {tools.user.length > 0 && (
+                        <div className="tool-group">
+                          <button
+                            className={`tool-group-header ${expandedToolGroups.user ? 'expanded' : ''}`}
+                            onClick={() => setExpandedToolGroups(prev => ({ ...prev, user: !prev.user }))}
+                          >
+                            <span className="tool-group-arrow">{expandedToolGroups.user ? '▼' : '▶'}</span>
+                            <span className="tool-group-icon">📝</span>
+                            <span className="tool-group-name">User Defined</span>
+                            <span className="tool-group-count">{tools.user.length}</span>
+                          </button>
+                          {expandedToolGroups.user && (
+                            <div className="tool-group-items">
+                              {tools.user.map((tool) => (
+                                <div key={tool.name} className="tool-item" title={formatToolTooltip(tool)}>
+                                  <span className="tool-name">{tool.name}</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* MCP Tools by Server */}
+                      {Object.entries(tools.mcp).map(([serverName, serverTools]) => (
+                        <div key={serverName} className="tool-group">
+                          <button
+                            className={`tool-group-header ${expandedToolGroups[`mcp_${serverName}`] ? 'expanded' : ''}`}
+                            onClick={() => setExpandedToolGroups(prev => ({ ...prev, [`mcp_${serverName}`]: !prev[`mcp_${serverName}`] }))}
+                          >
+                            <span className="tool-group-arrow">{expandedToolGroups[`mcp_${serverName}`] ? '▼' : '▶'}</span>
+                            <span className="tool-group-icon">🔌</span>
+                            <span className="tool-group-name">MCP: {serverName}</span>
+                            <span className="tool-group-count">{serverTools.length}</span>
+                          </button>
+                          {expandedToolGroups[`mcp_${serverName}`] && (
+                            <div className="tool-group-items">
+                              {serverTools.map((tool) => (
+                                <div key={tool.name} className="tool-item" title={formatToolTooltip(tool)}>
+                                  <span className="tool-name">{tool.name}</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </>
                   )}
                 </div>
               )}

@@ -1,158 +1,212 @@
 /**
- * Wikipedia Search Native Tool
+ * Web Search Native Tool
  *
- * Searches Wikipedia using their free public API.
- * No API key required.
+ * Searches the web using multiple provider options:
+ * - Serper (serper.dev) - Google Search API
+ * - Google Custom Search API
  */
 
 import type { NativeTool, NativeToolResult } from './types.js';
 
-export interface WikipediaSearchResult {
+export type WebSearchProvider = 'serper' | 'google_custom_search';
+
+export interface WebSearchConfig {
+  provider: WebSearchProvider;
+  apiKey: string;
+  /** Google Custom Search Engine ID (required for google_custom_search provider) */
+  searchEngineId?: string;
+}
+
+export interface WebSearchResult {
   title: string;
-  pageid: number;
+  link: string;
   snippet: string;
-  url: string;
+  position: number;
+}
+
+interface SerperResponse {
+  organic?: Array<{
+    title: string;
+    link: string;
+    snippet: string;
+    position: number;
+  }>;
+  answerBox?: {
+    title?: string;
+    answer?: string;
+    snippet?: string;
+  };
+  knowledgeGraph?: {
+    title?: string;
+    description?: string;
+  };
+}
+
+interface GoogleCustomSearchResponse {
+  items?: Array<{
+    title: string;
+    link: string;
+    snippet: string;
+  }>;
+  searchInformation?: {
+    totalResults: string;
+  };
 }
 
 export class WebSearchTool implements NativeTool {
   readonly name = 'web_search';
   readonly description =
-    'Search Wikipedia for information. Returns relevant article summaries for the given search query. Use this for factual information, definitions, historical events, people, places, and general knowledge.';
+    'Search the web for current information. Use this for recent news, current events, real-time data, or when Wikipedia might not have the answer. Returns web search results with titles, links, and snippets.';
   readonly inputSchema = {
     type: 'object',
     properties: {
-      searchText: {
+      query: {
         type: 'string',
-        description: 'The search query text',
+        description: 'The search query',
       },
-      limit: {
+      numResults: {
         type: 'number',
-        description: 'Maximum number of results to return (default: 5, max: 10)',
+        description: 'Number of results to return (default: 5, max: 10)',
       },
     },
-    required: ['searchText'],
+    required: ['query'],
   };
 
-  private baseUrl = 'https://en.wikipedia.org/w/api.php';
+  private config: WebSearchConfig;
+
+  constructor(config: WebSearchConfig) {
+    this.config = config;
+  }
 
   async execute(params: Record<string, unknown>): Promise<NativeToolResult> {
-    const searchText = String(params.searchText || '');
-    const limit = Math.min(Math.max(Number(params.limit) || 5, 1), 10);
+    const query = String(params.query || '');
+    const numResults = Math.min(Math.max(Number(params.numResults) || 5, 1), 10);
 
-    if (!searchText.trim()) {
+    if (!query.trim()) {
       return {
         success: false,
-        error: 'searchText parameter is required',
+        error: 'query parameter is required',
       };
     }
 
     try {
-      // Search Wikipedia
-      const searchParams = new URLSearchParams({
-        action: 'query',
-        list: 'search',
-        srsearch: searchText,
-        srlimit: String(limit),
-        format: 'json',
-        origin: '*',
-      });
+      let results: WebSearchResult[];
+      let additionalInfo: Record<string, unknown> = {};
 
-      const searchResponse = await fetch(`${this.baseUrl}?${searchParams}`);
-
-      if (!searchResponse.ok) {
-        throw new Error(`Wikipedia API error (${searchResponse.status})`);
+      switch (this.config.provider) {
+        case 'serper':
+          ({ results, additionalInfo } = await this.searchWithSerper(query, numResults));
+          break;
+        case 'google_custom_search':
+          results = await this.searchWithGoogleCustomSearch(query, numResults);
+          break;
+        default:
+          return {
+            success: false,
+            error: `Unknown search provider: ${this.config.provider}`,
+          };
       }
-
-      const searchData = (await searchResponse.json()) as {
-        query?: {
-          search?: Array<{
-            title: string;
-            pageid: number;
-            snippet: string;
-          }>;
-        };
-      };
-
-      const searchResults = searchData.query?.search || [];
-
-      if (searchResults.length === 0) {
-        return {
-          success: true,
-          output: {
-            query: searchText,
-            results: [],
-            totalResults: 0,
-            message: 'No Wikipedia articles found for this query.',
-          },
-        };
-      }
-
-      // Get extracts for each result
-      const pageIds = searchResults.map((r) => r.pageid).join('|');
-      const extractParams = new URLSearchParams({
-        action: 'query',
-        pageids: pageIds,
-        prop: 'extracts|info',
-        exintro: 'true',
-        explaintext: 'true',
-        exsentences: '3',
-        inprop: 'url',
-        format: 'json',
-        origin: '*',
-      });
-
-      const extractResponse = await fetch(`${this.baseUrl}?${extractParams}`);
-      const extractData = (await extractResponse.json()) as {
-        query?: {
-          pages?: Record<
-            string,
-            {
-              pageid: number;
-              title: string;
-              extract?: string;
-              fullurl?: string;
-            }
-          >;
-        };
-      };
-
-      const pages = extractData.query?.pages || {};
-
-      // Combine search results with extracts
-      const results: WikipediaSearchResult[] = searchResults.map((sr) => {
-        const page = pages[String(sr.pageid)];
-        return {
-          title: sr.title,
-          pageid: sr.pageid,
-          snippet: page?.extract || this.stripHtml(sr.snippet),
-          url: page?.fullurl || `https://en.wikipedia.org/wiki/${encodeURIComponent(sr.title.replace(/ /g, '_'))}`,
-        };
-      });
 
       return {
         success: true,
         output: {
-          query: searchText,
+          query,
+          provider: this.config.provider,
           results,
           totalResults: results.length,
+          ...additionalInfo,
         },
       };
     } catch (error) {
       return {
         success: false,
-        error: `Wikipedia search failed: ${String(error)}`,
+        error: `Web search failed: ${error instanceof Error ? error.message : String(error)}`,
       };
     }
   }
 
-  private stripHtml(html: string): string {
-    return html
-      .replace(/<[^>]*>/g, '')
-      .replace(/&quot;/g, '"')
-      .replace(/&amp;/g, '&')
-      .replace(/&lt;/g, '<')
-      .replace(/&gt;/g, '>')
-      .replace(/&nbsp;/g, ' ')
-      .trim();
+  /**
+   * Search using Serper API (serper.dev)
+   */
+  private async searchWithSerper(
+    query: string,
+    numResults: number
+  ): Promise<{ results: WebSearchResult[]; additionalInfo: Record<string, unknown> }> {
+    const response = await fetch('https://google.serper.dev/search', {
+      method: 'POST',
+      headers: {
+        'X-API-KEY': this.config.apiKey,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        q: query,
+        num: numResults,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Serper API error (${response.status}): ${errorText}`);
+    }
+
+    const data = (await response.json()) as SerperResponse;
+    const additionalInfo: Record<string, unknown> = {};
+
+    // Extract answer box if present
+    if (data.answerBox) {
+      additionalInfo.answerBox = {
+        title: data.answerBox.title,
+        answer: data.answerBox.answer || data.answerBox.snippet,
+      };
+    }
+
+    // Extract knowledge graph if present
+    if (data.knowledgeGraph) {
+      additionalInfo.knowledgeGraph = {
+        title: data.knowledgeGraph.title,
+        description: data.knowledgeGraph.description,
+      };
+    }
+
+    const results: WebSearchResult[] = (data.organic || []).map((item, index) => ({
+      title: item.title,
+      link: item.link,
+      snippet: item.snippet,
+      position: item.position || index + 1,
+    }));
+
+    return { results, additionalInfo };
+  }
+
+  /**
+   * Search using Google Custom Search API
+   */
+  private async searchWithGoogleCustomSearch(query: string, numResults: number): Promise<WebSearchResult[]> {
+    if (!this.config.searchEngineId) {
+      throw new Error('searchEngineId is required for Google Custom Search');
+    }
+
+    const params = new URLSearchParams({
+      key: this.config.apiKey,
+      cx: this.config.searchEngineId,
+      q: query,
+      num: String(numResults),
+    });
+
+    const response = await fetch(`https://www.googleapis.com/customsearch/v1?${params}`);
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Google Custom Search API error (${response.status}): ${errorText}`);
+    }
+
+    const data = (await response.json()) as GoogleCustomSearchResponse;
+
+    return (data.items || []).map((item, index) => ({
+      title: item.title,
+      link: item.link,
+      snippet: item.snippet,
+      position: index + 1,
+    }));
   }
 }

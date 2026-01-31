@@ -26,6 +26,66 @@ OllieBot is a personal support agent that runs continuously to respond and poll 
 - the code base should use Kysely library to interact with sqlite engine
 - the MCP and Skills are global, the tasks can pick relevant ones to use. But in the task .json file maybe provide ability to whitelist or blacklist sepcific MCP or Skills to allow for some user control
 - I want this service to have an explicit multi-agent architecture. That means that there isn't a single identity of "OllieBot", sure there is a master or supervisor agent, but there can also be sub-agent that with specific mission or for performing a scoped sub task, and these agents can be spun off by master agent to work on specific task. And these agents could speak in the communication channel without having to speak through the supervisor agent. 
+- User defined tools, Tool Manager supports user defining tool in .md file, and the tool manager will automatically compile that into a .js file that can be used as a tool, with parameter metadata and with runtime sandboxing. Technical details see the `User defined tool` section.
+
+## User defined tool
+
+In the user folder, there is a tools subfolder, and within, there are *.md files, each is a user defined tool that should be available to all users. User will write the description of the tool in natural language in .md file. And upon detecting the presence of a new .md file, the tool manager should generate a .js file containing a single default export function that implements the behavior described in the .md file. 
+
+### Translating .md to .js
+We will use a new sub agent "Code Generator" to understand the .md file and then translate its requirement into a single .js file, and within this js file, it would contain 2 exports. 
+exports.inputSchema would contain a zod object that describes the expected schema for the input object based on user's description in the .md file.
+exports.default would contain a function that takes in a single parameter - `input`, that is expected to match the exports.inputSchema described above. And the function body would contain the javascript code that accomplishes what user describes. The function may or may not return a value - that all depends on what user specifies in the .md file.
+
+Example:
+```javascript
+// z zod object would be injected into the context in runtime
+exports.inputSchema = z.object({
+  userId: z.string().min(1),
+  email: validators.email.optional()
+});
+
+exports.default = function(input) {
+  const winerId = Math.floor(Math.random() * 100).toString();
+  const isWinner = winerId === input.userId;
+  return { 
+    isWinner,
+    result: isWinner: "You win the lottery!" ? "You did not win the lottery" 
+  };
+};
+```
+
+## Running generated .js with isolation
+- at runtime when the tool is being used, we would use node.js vm module to run the logic with some isolation. We will also use zod to provide input schema inspection and validation. 
+
+```javascript
+import vm from 'vm';
+import fs from 'fs/promises';
+import { z } from 'zod';
+
+async function runTool(toolPath, input) {
+  const code = await fs.readFile(toolPath, 'utf8');
+  
+  const context = vm.createContext({
+    z,
+    input,
+    exports: {},
+    console
+  });
+  
+  vm.runInContext(code, context);
+  
+  // Auto-validate if schema exists
+  if (context.exports.inputSchema) {
+    const validated = context.exports.inputSchema.parse(input);
+    return context.exports.default(validated);
+  }
+  
+  return context.exports.default(input);
+}
+```
+
+If the .md file contains "#WIP" that means it's not ready to be translate into .js yet, ignore these files and do not attempt to translate it.
 
 ## UI Design and Details
 - On the left, there should be a collapsable area to show history of different conversations. 

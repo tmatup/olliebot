@@ -7,12 +7,14 @@ import { WebChannel } from '../channels/index.js';
 import { getDb } from '../db/index.js';
 import type { MCPClient } from '../mcp/index.js';
 import type { SkillManager } from '../skills/index.js';
+import type { ToolRunner } from '../tools/index.js';
 
 export interface ServerConfig {
   port: number;
   supervisor: SupervisorAgent;
   mcpClient?: MCPClient;
   skillManager?: SkillManager;
+  toolRunner?: ToolRunner;
 }
 
 export class OllieBotServer {
@@ -24,12 +26,14 @@ export class OllieBotServer {
   private port: number;
   private mcpClient?: MCPClient;
   private skillManager?: SkillManager;
+  private toolRunner?: ToolRunner;
 
   constructor(config: ServerConfig) {
     this.port = config.port;
     this.supervisor = config.supervisor;
     this.mcpClient = config.mcpClient;
     this.skillManager = config.skillManager;
+    this.toolRunner = config.toolRunner;
 
     // Create Express app
     this.app = express();
@@ -111,6 +115,84 @@ export class OllieBotServer {
         description: skill.description,
         location: skill.filePath,
       })));
+    });
+
+    // Get all tools (native + MCP) organized as tree structure
+    this.app.get('/api/tools', (_req: Request, res: Response) => {
+      if (!this.toolRunner) {
+        res.json({ builtin: [], user: [], mcp: {} });
+        return;
+      }
+
+      // Helper to extract input parameters from JSON schema
+      const extractInputs = (schema: Record<string, unknown>): Array<{ name: string; type: string; description: string; required: boolean }> => {
+        const properties = schema.properties as Record<string, { type?: string; description?: string }> | undefined;
+        const required = (schema.required as string[]) || [];
+        if (!properties) return [];
+
+        return Object.entries(properties).map(([name, prop]) => ({
+          name,
+          type: String(prop.type || 'any'),
+          description: prop.description || '',
+          required: required.includes(name),
+        }));
+      };
+
+      const tools = this.toolRunner.getToolsForLLM();
+
+      interface ToolInfo {
+        name: string;
+        description: string;
+        inputs: Array<{ name: string; type: string; description: string; required: boolean }>;
+      }
+
+      const builtin: ToolInfo[] = [];
+      const user: ToolInfo[] = [];
+      const mcp: Record<string, ToolInfo[]> = {};
+
+      // Get MCP server names for grouping
+      const mcpServers = this.mcpClient?.getServers() || [];
+      const serverNames: Record<string, string> = {};
+      for (const server of mcpServers) {
+        serverNames[server.id] = server.name;
+      }
+
+      for (const tool of tools) {
+        const toolName = tool.name;
+        const inputs = extractInputs(tool.input_schema);
+
+        if (toolName.startsWith('user__')) {
+          // User-defined tool
+          user.push({
+            name: toolName.replace('user__', ''),
+            description: tool.description,
+            inputs,
+          });
+        } else if (toolName.startsWith('native__')) {
+          // Built-in native tool
+          builtin.push({
+            name: toolName.replace('native__', ''),
+            description: tool.description,
+            inputs,
+          });
+        } else if (toolName.includes('__')) {
+          // MCP tool: serverId__toolName
+          const [serverId, ...rest] = toolName.split('__');
+          const mcpToolName = rest.join('__');
+          const serverName = serverNames[serverId] || serverId;
+
+          if (!mcp[serverName]) {
+            mcp[serverName] = [];
+          }
+          mcp[serverName].push({
+            name: mcpToolName,
+            description: tool.description,
+            inputs,
+          });
+        }
+      }
+
+      res.json({ builtin, user, mcp });
     });
 
     // Get all conversations
