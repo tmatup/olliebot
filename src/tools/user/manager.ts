@@ -7,7 +7,7 @@
 
 import { EventEmitter } from 'node:events';
 import { join, basename } from 'node:path';
-import { readFile, writeFile, mkdir, unlink } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, unlink, stat } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { watch, type FSWatcher } from 'chokidar';
 import type { NativeTool, NativeToolResult } from '../native/types.js';
@@ -88,9 +88,13 @@ export class UserToolManager extends EventEmitter {
    * Start watching the tools directory for changes
    */
   private startWatching(): void {
-    const watchPattern = join(this.toolsDir, '*.md');
+    // Watch both .md and .js files
+    const watchPatterns = [
+      join(this.toolsDir, '*.md'),
+      join(this.toolsDir, '*.js'),
+    ];
 
-    this.watcher = watch(watchPattern, {
+    this.watcher = watch(watchPatterns, {
       persistent: true,
       ignoreInitial: true, // Don't fire for existing files (we loaded them already)
       awaitWriteFinish: {
@@ -99,12 +103,59 @@ export class UserToolManager extends EventEmitter {
       },
     });
 
-    this.watcher.on('add', (path) => this.handleFileEvent('add', path));
-    this.watcher.on('change', (path) => this.handleFileEvent('change', path));
-    this.watcher.on('unlink', (path) => this.handleFileRemoved(path));
+    this.watcher.on('add', (path) => {
+      if (path.endsWith('.md')) {
+        this.handleFileEvent('add', path);
+      }
+      // Ignore .js additions (we create them)
+    });
+
+    this.watcher.on('change', (path) => {
+      if (path.endsWith('.md')) {
+        this.handleFileEvent('change', path);
+      }
+      // Ignore .js changes (we create them)
+    });
+
+    this.watcher.on('unlink', (path) => {
+      if (path.endsWith('.md')) {
+        this.handleFileRemoved(path);
+      } else if (path.endsWith('.js')) {
+        this.handleJsFileDeleted(path);
+      }
+    });
+
     this.watcher.on('error', (error) => {
       console.error('[UserToolManager] Watcher error:', error);
     });
+  }
+
+  /**
+   * Handle .js file deletion - regenerate from .md if it exists
+   */
+  private async handleJsFileDeleted(jsPath: string): Promise<void> {
+    const name = basename(jsPath, '.js');
+    const mdPath = join(this.toolsDir, `${name}.md`);
+
+    console.log(`[UserToolManager] Generated .js file deleted: ${name}`);
+
+    // Check if the .md file still exists
+    if (!existsSync(mdPath)) {
+      console.log(`[UserToolManager] No .md file found for ${name}, skipping regeneration`);
+      return;
+    }
+
+    console.log(`[UserToolManager] Regenerating ${name}.js from ${name}.md...`);
+
+    try {
+      // Force regeneration since .js was deleted
+      const definition = await this.loadTool(mdPath, true);
+      console.log(`[UserToolManager] Successfully regenerated tool: ${name}`);
+      this.emitEvent('tool:updated', definition);
+    } catch (error) {
+      console.error(`[UserToolManager] Failed to regenerate tool ${name}:`, error);
+      this.emitEvent('tool:generation_failed', { name, error: String(error) });
+    }
   }
 
   /**
@@ -112,22 +163,29 @@ export class UserToolManager extends EventEmitter {
    */
   private handleFileEvent(event: 'add' | 'change', mdPath: string): void {
     const name = this.getToolName(mdPath);
+    console.log(`[UserToolManager] File ${event} detected: ${name} (${mdPath})`);
 
     // Cancel any pending generation for this tool
     const pending = this.pendingGenerations.get(name);
     if (pending) {
       clearTimeout(pending);
+      console.log(`[UserToolManager] Cancelled pending generation for: ${name}`);
     }
 
     // Debounce: wait for file to stabilize before generating
-    const timeout = setTimeout(async () => {
+    const timeout = setTimeout(() => {
       this.pendingGenerations.delete(name);
 
-      if (event === 'add') {
-        await this.handleFileAdded(mdPath);
-      } else {
-        await this.handleFileChanged(mdPath);
-      }
+      // Handle async in a way that catches errors
+      (async () => {
+        if (event === 'add') {
+          await this.handleFileAdded(mdPath);
+        } else {
+          await this.handleFileChanged(mdPath);
+        }
+      })().catch((error) => {
+        console.error(`[UserToolManager] Error handling ${event} for ${name}:`, error);
+      });
     }, DEBOUNCE_DELAY_MS);
 
     this.pendingGenerations.set(name, timeout);
@@ -154,13 +212,17 @@ export class UserToolManager extends EventEmitter {
    */
   private async handleFileChanged(mdPath: string): Promise<void> {
     const name = this.getToolName(mdPath);
-    console.log(`[UserToolManager] Tool updated: ${name}`);
+    const jsPath = this.getJsPath(name);
+    console.log(`[UserToolManager] Tool changed: ${name}`);
+    console.log(`[UserToolManager] Re-generating ${jsPath} from ${mdPath}...`);
 
     try {
-      const definition = await this.loadTool(mdPath);
+      // Force regeneration since the .md file changed
+      const definition = await this.loadTool(mdPath, true);
+      console.log(`[UserToolManager] Successfully re-generated tool: ${name}`);
       this.emitEvent('tool:updated', definition);
     } catch (error) {
-      console.error(`[UserToolManager] Failed to update tool ${name}:`, error);
+      console.error(`[UserToolManager] Failed to re-generate tool ${name}:`, error);
       this.emitEvent('tool:generation_failed', { name, error: String(error) });
     }
   }
@@ -189,14 +251,61 @@ export class UserToolManager extends EventEmitter {
   }
 
   /**
-   * Load a tool from its .md file
+   * Check if tool needs regeneration
+   * Returns true if:
+   * - .js file doesn't exist
+   * - .md file is newer than .js file
    */
-  private async loadTool(mdPath: string): Promise<UserToolDefinition> {
+  private async needsRegeneration(mdPath: string, jsPath: string): Promise<boolean> {
+    // If .js doesn't exist, need to generate
+    if (!existsSync(jsPath)) {
+      return true;
+    }
+
+    try {
+      const [mdStat, jsStat] = await Promise.all([
+        stat(mdPath),
+        stat(jsPath),
+      ]);
+
+      // If .md is newer than .js, need to regenerate
+      return mdStat.mtime > jsStat.mtime;
+    } catch {
+      // If we can't stat files, regenerate to be safe
+      return true;
+    }
+  }
+
+  /**
+   * Load a tool from its .md file
+   * @param mdPath Path to the .md file
+   * @param forceRegenerate If true, regenerate even if .js is up to date
+   */
+  private async loadTool(mdPath: string, forceRegenerate: boolean = false): Promise<UserToolDefinition> {
     const name = this.getToolName(mdPath);
     const jsPath = this.getJsPath(name);
 
+    // Check if we need to regenerate
+    const needsRegen = forceRegenerate || await this.needsRegeneration(mdPath, jsPath);
+
+    if (!needsRegen) {
+      // .js is up to date, just load the existing definition
+      console.log(`[UserToolManager] Tool ${name} is up to date, skipping generation`);
+
+      // Parse the .md to get definition (but don't regenerate code)
+      const mdContent = await readFile(mdPath, 'utf-8');
+      const definition = this.generator.parseDefinition(mdContent, name, mdPath, jsPath);
+
+      const jsStat = await stat(jsPath);
+      definition.generatedAt = jsStat.mtime;
+      this.tools.set(name, definition);
+
+      return definition;
+    }
+
     // Prevent concurrent generation for the same tool
     if (this.generationInProgress.has(name)) {
+      console.log(`[UserToolManager] Generation already in progress for: ${name}, skipping`);
       const existing = this.tools.get(name);
       if (existing) return existing;
       throw new Error(`Generation already in progress for ${name}`);
@@ -204,20 +313,25 @@ export class UserToolManager extends EventEmitter {
 
     this.generationInProgress.add(name);
     this.emitEvent('tool:generation_started', name);
+    console.log(`[UserToolManager] Starting code generation for: ${name}`);
 
     try {
       // Read and parse the .md file
+      console.log(`[UserToolManager] Reading ${mdPath}...`);
       const mdContent = await readFile(mdPath, 'utf-8');
       const definition = this.generator.parseDefinition(mdContent, name, mdPath, jsPath);
+      console.log(`[UserToolManager] Parsed definition for: ${name} (${definition.inputs.length} inputs)`);
 
-      // Generate the .js file
+      // Generate the .js file using LLM
+      console.log(`[UserToolManager] Generating JavaScript code for: ${name}...`);
       const code = await this.generator.generateCode(definition);
+      console.log(`[UserToolManager] Writing generated code to: ${jsPath}`);
       await writeFile(jsPath, code, 'utf-8');
 
       definition.generatedAt = new Date();
       this.tools.set(name, definition);
 
-      console.log(`[UserToolManager] Generated ${jsPath}`);
+      console.log(`[UserToolManager] ✓ Successfully generated ${jsPath}`);
       this.emitEvent('tool:generation_completed', definition);
 
       return definition;
