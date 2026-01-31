@@ -1,0 +1,66 @@
+{
+  "name": "Daily Summary Task",
+  "description": "Daily check of UiPath/Jarvis GitHub activity: summarize commits from the past 24 hours using associated pull request info and list outstanding pull requests; post the result as a chat message from Olli.",
+  "trigger": {
+    "type": "schedule",
+    "schedule": "0 7 * * *",
+    "event": ""
+  },
+  "actions": [
+    {
+      "type": "mcp.github.list_recent_commits",
+      "params": {
+        "repo": "UiPath/Jarvis",
+        "lookbackHours": 24
+      }
+    },
+    {
+      "type": "mcp.github.get_associated_pull_requests",
+      "params": {
+        "repo": "UiPath/Jarvis",
+        "forCommitsFromPreviousAction": true
+      }
+    },
+    {
+      "type": "mcp.github.summarize_commits_via_pull_requests",
+      "params": {
+        "repo": "UiPath/Jarvis",
+        "timeWindowHours": 24
+      }
+    },
+    {
+      "type": "mcp.github.list_outstanding_pull_requests",
+      "params": {
+        "repo": "UiPath/Jarvis",
+        "state": "open"
+      }
+    },
+    {
+      "type": "chat.send_message",
+      "params": {
+        "from": "Olli",
+        "messageFormat": "Daily GitHub Summary (UiPath/Jarvis)\n\n## Past 24h commits (via PRs)\n{{commitsSummary}}\n\n## Outstanding PRs\n{{outstandingPrsSummary}}"
+      }
+    }
+  ],
+  "mcp": {
+    "whitelist": [
+      "github"
+    ],
+    "blacklist": []
+  },
+  "skills": {
+    "whitelist": [
+      "summarization",
+      "chat.messaging"
+    ],
+    "blacklist": []
+  },
+  "notifications": {
+    "onSuccess": false,
+    "onError": true,
+    "channels": [
+      "chat"
+    ]
+  }
+}

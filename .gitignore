@@ -1,0 +1,34 @@
+# Dependencies
+node_modules/
+web/node_modules/
+__pycache__/
+user/skills/**
+
+# Build output
+dist/
+web/dist/
+
+# Environment files
+.env
+.env.local
+
+# Database
+user/data/*.json
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.claude/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Test coverage
+coverage/
