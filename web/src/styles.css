@@ -725,7 +725,8 @@ html, body {
 .message {
   display: flex;
   gap: 0.75rem;
-  max-width: 85%;
+  max-width: 90%;
+  min-width: 0;
 }
 
 .message.user {
@@ -753,6 +754,8 @@ html, body {
   padding: 0.75rem 1rem;
   border-radius: 1rem;
   line-height: 1.5;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .message.user .message-content {
@@ -1276,6 +1279,100 @@ html, body {
 /* Code blocks */
 .code-block {
   position: relative;
+}
+
+.code-block-wrapper {
+  margin: 0.75rem 0;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.code-block-container {
+  position: relative;
+  margin: 0.75rem 0;
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  border-radius: 6px;
+}
+
+.code-block-container pre,
+.code-block-container > div {
+  min-width: 0;
+}
+
+.code-block-header {
+  background: #1e1e1e;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 6px 12px;
+  border-radius: 6px 6px 0 0;
+}
+
+.code-block-language {
+  font-size: 12px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.6);
+  text-transform: lowercase;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.code-block-container:hover .code-copy-button {
+  opacity: 1;
+}
+
+.code-copy-button {
+  position: absolute;
+  top: 8px;
+  right: 12px;
+  z-index: 10;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+  color: rgba(255, 255, 255, 0.7);
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  font-size: 12px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.2s, background 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+
+/* Position copy button in header when header exists */
+.code-block-container.has-header .code-copy-button {
+  top: 5px;
+  right: 8px;
+}
+
+.code-copy-button:hover {
+  background: rgba(255, 255, 255, 0.2);
+  color: #fff;
+}
+
+.code-copy-button.copied {
+  background: rgba(34, 197, 94, 0.3);
+  border-color: rgba(34, 197, 94, 0.5);
+  color: #22c55e;
+}
+
+.code-block-highlighted {
+  margin: 0 !important;
+  max-height: 400px;
+  overflow: auto !important;
+  width: 100%;
+}
+
+.code-block-highlighted pre {
+  margin: 0 !important;
+  min-width: 0;
+}
+
+.code-block-highlighted code {
+  font-family: 'Fira Code', 'Consolas', 'Monaco', monospace !important;
 }
 
 .inline-code {

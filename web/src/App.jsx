@@ -3,10 +3,58 @@ import ReactMarkdown from 'react-markdown';
 import rehypeRaw from 'rehype-raw';
 import rehypeSanitize from 'rehype-sanitize';
 import remarkGfm from 'remark-gfm';
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { useWebSocket } from './hooks/useWebSocket';
 import HtmlPreview from './components/HtmlPreview';
 import { BrowserSessions } from './components/BrowserSessions';
 import { BrowserPreview } from './components/BrowserPreview';
+
+// Code block component with copy button and language header
+function CodeBlock({ language, children }) {
+  const [copied, setCopied] = useState(false);
+  const hasLanguage = language && language !== 'text';
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(children);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      console.error('Failed to copy:', err);
+    }
+  };
+
+  return (
+    <div className={`code-block-container ${hasLanguage ? 'has-header' : ''}`}>
+      {hasLanguage && (
+        <div className="code-block-header">
+          <span className="code-block-language">{language}</span>
+        </div>
+      )}
+      <button
+        className={`code-copy-button ${copied ? 'copied' : ''}`}
+        onClick={handleCopy}
+        title={copied ? 'Copied!' : 'Copy code'}
+      >
+        {copied ? '✓' : '⧉'}
+      </button>
+      <SyntaxHighlighter
+        style={oneDark}
+        language={language || 'text'}
+        PreTag="div"
+        className="code-block-highlighted"
+        customStyle={{
+          margin: 0,
+          borderRadius: hasLanguage ? '0 0 6px 6px' : '6px',
+          fontSize: '13px',
+        }}
+      >
+        {children}
+      </SyntaxHighlighter>
+    </div>
+  );
+}
 
 function App() {
   const [messages, setMessages] = useState([]);
@@ -988,7 +1036,7 @@ function App() {
           pre({ children }) {
             return <div className="code-block-wrapper">{children}</div>;
           },
-          // Custom rendering for code
+          // Custom rendering for code with syntax highlighting
           code({ node, className, children, ...props }) {
             const match = /language-(\w+)/.exec(className || '');
             const language = match ? match[1] : null;
@@ -996,17 +1044,15 @@ function App() {
             const isBlock = match || (node?.tagName === 'code' && node?.parent?.tagName === 'pre');
 
             if (isBlock) {
+              const codeContent = String(children).replace(/\n$/, '');
+
               // Check if this is HTML content - render with HtmlPreview
               if (language === 'html' || language === 'htm') {
-                const htmlContent = String(children).replace(/\n$/, '');
-                return <HtmlPreview html={htmlContent} />;
+                return <HtmlPreview html={codeContent} />;
               }
 
-              return (
-                <pre className={`code-block ${match ? `language-${match[1]}` : ''}`}>
-                  <code {...props}>{children}</code>
-                </pre>
-              );
+              // Use CodeBlock component with copy button
+              return <CodeBlock language={language}>{codeContent}</CodeBlock>;
             }
             // Inline code
             return (
