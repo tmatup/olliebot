@@ -288,7 +288,121 @@ function App() {
     }
   }, []);
 
-  const handleOpen = useCallback(() => setIsConnected(true), []);
+  // Load current conversation messages
+  const loadMessages = useCallback(async () => {
+    try {
+      const res = await fetch('/api/messages?limit=50');
+      const data = await res.json();
+      setMessages(
+        data.map((msg) => {
+          // Determine the role based on message type
+          let role = msg.role;
+          if (msg.messageType === 'task_run') {
+            role = 'task_run';
+          } else if (msg.messageType === 'tool_event' || msg.role === 'tool') {
+            role = 'tool';
+          }
+
+          return {
+            id: msg.id,
+            role,
+            content: msg.content,
+            timestamp: msg.createdAt,
+            agentName: msg.agentName,
+            agentEmoji: msg.agentEmoji,
+            attachments: msg.attachments,
+            // Task metadata
+            taskId: msg.taskId,
+            taskName: msg.taskName,
+            taskDescription: msg.taskDescription,
+            // Tool event metadata
+            toolName: msg.toolName,
+            source: msg.toolSource,
+            status: msg.toolSuccess === true ? 'completed' : msg.toolSuccess === false ? 'failed' : undefined,
+            durationMs: msg.toolDurationMs,
+            error: msg.toolError,
+            parameters: msg.toolParameters,
+            result: msg.toolResult,
+          };
+        })
+      );
+    } catch (error) {
+      console.error('Failed to load messages:', error);
+    }
+  }, []);
+
+  // Load conversation history
+  const loadConversations = useCallback(async () => {
+    try {
+      const res = await fetch('/api/conversations');
+      if (!res.ok) throw new Error('API not available');
+      const data = await res.json();
+      // Map API response to consistent format
+      const mapped = data.map(c => ({
+        id: c.id,
+        title: c.title,
+        updatedAt: c.updatedAt || c.updated_at,
+      }));
+      setConversations(mapped);
+      if (mapped.length > 0) {
+        setCurrentConversationId(mapped[0].id);
+      }
+    } catch {
+      // API might not exist yet, use empty state
+      setConversations([]);
+      setCurrentConversationId(null);
+    } finally {
+      setConversationsLoading(false);
+      setShowSkeleton(false);
+    }
+  }, []);
+
+  // Load agent tasks, skills, MCPs, and tools
+  const loadSidebarData = useCallback(async () => {
+    try {
+      const [tasksRes, skillsRes, mcpsRes, toolsRes] = await Promise.all([
+        fetch('/api/tasks').catch(() => ({ ok: false })),
+        fetch('/api/skills').catch(() => ({ ok: false })),
+        fetch('/api/mcps').catch(() => ({ ok: false })),
+        fetch('/api/tools').catch(() => ({ ok: false })),
+      ]);
+
+      if (tasksRes.ok) {
+        const tasks = await tasksRes.json();
+        setAgentTasks(tasks);
+      }
+
+      if (skillsRes.ok) {
+        const skillsData = await skillsRes.json();
+        setSkills(skillsData);
+      }
+
+      if (mcpsRes.ok) {
+        const mcpsData = await mcpsRes.json();
+        setMcps(mcpsData);
+      }
+
+      if (toolsRes.ok) {
+        const toolsData = await toolsRes.json();
+        setTools(toolsData);
+      }
+    } catch {
+      // APIs might not be available
+    }
+  }, []);
+
+  // Refresh all data (called on reconnect)
+  const refreshAllData = useCallback(() => {
+    loadMessages();
+    loadConversations();
+    loadSidebarData();
+  }, [loadMessages, loadConversations, loadSidebarData]);
+
+  const handleOpen = useCallback(() => {
+    setIsConnected(true);
+    // Refresh all data when connection is (re)established
+    refreshAllData();
+  }, [refreshAllData]);
   const handleClose = useCallback(() => setIsConnected(false), []);
 
   const { sendMessage, connectionState } = useWebSocket({
@@ -299,118 +413,17 @@ function App() {
 
   // Load history and conversations on mount (async, non-blocking)
   useEffect(() => {
-    // Load current conversation messages
-    fetch('/api/messages?limit=50')
-      .then((res) => res.json())
-      .then((data) => {
-        setMessages(
-          data.map((msg) => {
-            // Determine the role based on message type
-            let role = msg.role;
-            if (msg.messageType === 'task_run') {
-              role = 'task_run';
-            } else if (msg.messageType === 'tool_event' || msg.role === 'tool') {
-              role = 'tool';
-            }
-
-            return {
-              id: msg.id,
-              role,
-              content: msg.content,
-              timestamp: msg.createdAt,
-              agentName: msg.agentName,
-              agentEmoji: msg.agentEmoji,
-              attachments: msg.attachments,
-              // Task metadata
-              taskId: msg.taskId,
-              taskName: msg.taskName,
-              taskDescription: msg.taskDescription,
-              // Tool event metadata
-              toolName: msg.toolName,
-              source: msg.toolSource,
-              status: msg.toolSuccess === true ? 'completed' : msg.toolSuccess === false ? 'failed' : undefined,
-              durationMs: msg.toolDurationMs,
-              error: msg.toolError,
-              parameters: msg.toolParameters,
-              result: msg.toolResult,
-            };
-          })
-        );
-      })
-      .catch(console.error);
-
     // Show skeleton after 500ms if still loading
     const skeletonTimer = setTimeout(() => {
       setShowSkeleton(true);
     }, 500);
 
-    // Load conversation history asynchronously
-    const loadConversations = async () => {
-      try {
-        const res = await fetch('/api/conversations');
-        if (!res.ok) throw new Error('API not available');
-        const data = await res.json();
-        // Map API response to consistent format
-        const mapped = data.map(c => ({
-          id: c.id,
-          title: c.title,
-          updatedAt: c.updatedAt || c.updated_at,
-        }));
-        setConversations(mapped);
-        if (mapped.length > 0) {
-          setCurrentConversationId(mapped[0].id);
-        }
-      } catch {
-        // API might not exist yet, use empty state
-        setConversations([]);
-        setCurrentConversationId(null);
-      } finally {
-        clearTimeout(skeletonTimer);
-        setConversationsLoading(false);
-        setShowSkeleton(false);
-      }
-    };
-
-    loadConversations();
-
-    // Load agent tasks, skills, MCPs, and tools
-    const loadSidebarData = async () => {
-      try {
-        const [tasksRes, skillsRes, mcpsRes, toolsRes] = await Promise.all([
-          fetch('/api/tasks').catch(() => ({ ok: false })),
-          fetch('/api/skills').catch(() => ({ ok: false })),
-          fetch('/api/mcps').catch(() => ({ ok: false })),
-          fetch('/api/tools').catch(() => ({ ok: false })),
-        ]);
-
-        if (tasksRes.ok) {
-          const tasks = await tasksRes.json();
-          setAgentTasks(tasks);
-        }
-
-        if (skillsRes.ok) {
-          const skillsData = await skillsRes.json();
-          setSkills(skillsData);
-        }
-
-        if (mcpsRes.ok) {
-          const mcpsData = await mcpsRes.json();
-          setMcps(mcpsData);
-        }
-
-        if (toolsRes.ok) {
-          const toolsData = await toolsRes.json();
-          setTools(toolsData);
-        }
-      } catch {
-        // APIs might not be available
-      }
-    };
-
+    loadMessages();
+    loadConversations().finally(() => clearTimeout(skeletonTimer));
     loadSidebarData();
 
     return () => clearTimeout(skeletonTimer);
-  }, []);
+  }, [loadMessages, loadConversations, loadSidebarData]);
 
   // Smart auto-scroll - only scroll if user hasn't manually scrolled up
   // Uses instant scroll (not smooth) so it doesn't create ongoing animations that fight with user input
