@@ -1,8 +1,6 @@
 // Supervisor Agent - orchestrates sub-agents
 
 import { v4 as uuid } from 'uuid';
-import { existsSync, readFileSync } from 'fs';
-import { join } from 'path';
 import { AbstractAgent, type AgentRegistry } from './base-agent.js';
 import type {
   SupervisorAgent as ISupervisorAgent,
@@ -17,141 +15,8 @@ import type { LLMService } from '../llm/service.js';
 import type { LLMMessage, LLMToolUse } from '../llm/types.js';
 import { getDb } from '../db/index.js';
 import type { WebChannel } from '../channels/web.js';
-
-/**
- * Strip large binary data (like base64 images) from tool results before sending to LLM.
- * The LLM can't meaningfully process binary data, and it wastes context tokens.
- */
-function stripBinaryDataForLLM(output: unknown): unknown {
-  if (output === null || output === undefined) {
-    return output;
-  }
-
-  if (typeof output === 'string') {
-    // Check if the entire string is a data URL
-    if (output.startsWith('data:image/')) {
-      const sizeKB = Math.round(output.length / 1024);
-      return `[Image data: ${sizeKB}KB - displayed to user]`;
-    }
-    return output;
-  }
-
-  if (Array.isArray(output)) {
-    return output.map(item => stripBinaryDataForLLM(item));
-  }
-
-  if (typeof output === 'object') {
-    const cleaned: Record<string, unknown> = {};
-    for (const [key, value] of Object.entries(output as Record<string, unknown>)) {
-      if (key === 'dataUrl' && typeof value === 'string' && value.startsWith('data:')) {
-        // Replace dataUrl with a placeholder indicating it was shown to the user
-        const sizeKB = Math.round(value.length / 1024);
-        cleaned[key] = `[Image data: ${sizeKB}KB - displayed to user]`;
-      } else {
-        cleaned[key] = stripBinaryDataForLLM(value);
-      }
-    }
-    return cleaned;
-  }
-
-  return output;
-}
-
-// Directory for external sub-agent prompts (user can override defaults)
-const PROMPTS_DIR = join(process.cwd(), 'user', 'sub-agents');
-
-// Default prompts (used if no external file exists)
-const DEFAULT_PROMPTS: Record<string, string> = {
-  researcher: `You are a Research Agent. Your role is to:
-- Gather and analyze information
-- Provide well-researched answers
-- Cite sources when possible
-- Break down complex topics into understandable parts
-
-Be thorough but concise. Focus on accuracy and relevance.`,
-  coder: `You are a Code Agent. Your role is to:
-- Write clean, efficient code
-- Explain code concepts clearly
-- Debug and troubleshoot issues
-- Suggest best practices and improvements
-
-Always consider security, performance, and maintainability.`,
-  writer: `You are a Writer Agent. Your role is to:
-- Create clear, engaging content
-- Edit and improve text
-- Adapt tone and style as needed
-- Structure information effectively
-
-Focus on clarity, readability, and audience appropriateness.`,
-  planner: `You are a Planner Agent. Your role is to:
-- Break down complex tasks into steps
-- Create actionable plans
-- Identify dependencies and priorities
-- Estimate effort and track progress
-
-Be systematic and thorough in planning.`,
-  custom: `You are a helpful assistant agent. Adapt your approach based on the mission assigned to you.`,
-};
-
-/**
- * Load agent prompt from external file, or fall back to default
- */
-function loadAgentPrompt(agentType: string): string {
-  const promptPath = join(PROMPTS_DIR, `${agentType}.md`);
-
-  try {
-    if (existsSync(promptPath)) {
-      const content = readFileSync(promptPath, 'utf-8').trim();
-      if (content.length > 0) {
-        return content;
-      }
-    }
-  } catch (error) {
-    // Fall through to default
-  }
-
-  return DEFAULT_PROMPTS[agentType] || DEFAULT_PROMPTS.custom;
-}
-
-// Specialist agent identity templates (prompts loaded from external files)
-const SPECIALIST_IDENTITIES: Record<string, { identity: AgentIdentity }> = {
-  researcher: {
-    identity: {
-      id: '',
-      name: 'Research Agent',
-      emoji: '🔍',
-      role: 'specialist',
-      description: 'Specializes in research, information gathering, and analysis',
-    },
-  },
-  coder: {
-    identity: {
-      id: '',
-      name: 'Code Agent',
-      emoji: '💻',
-      role: 'specialist',
-      description: 'Specializes in writing, reviewing, and explaining code',
-    },
-  },
-  writer: {
-    identity: {
-      id: '',
-      name: 'Writer Agent',
-      emoji: '✍️',
-      role: 'specialist',
-      description: 'Specializes in writing, editing, and content creation',
-    },
-  },
-  planner: {
-    identity: {
-      id: '',
-      name: 'Planner Agent',
-      emoji: '📋',
-      role: 'specialist',
-      description: 'Specializes in planning, organizing, and task breakdown',
-    },
-  },
-};
+import type { ToolEvent } from '../tools/types.js';
+import { stripBinaryDataForLLM } from '../utils/index.js';
 
 export class SupervisorAgentImpl extends AbstractAgent implements ISupervisorAgent {
   private subAgents: Map<string, WorkerAgent> = new Map();
@@ -160,7 +25,10 @@ export class SupervisorAgentImpl extends AbstractAgent implements ISupervisorAge
   private currentConversationId: string | null = null;
   private conversationMessageCount: Map<string, number> = new Map(); // Track message counts for auto-naming
 
-  constructor(llmService: LLMService) {
+  // Override to make registry non-nullable in supervisor
+  protected declare agentRegistry: AgentRegistry;
+
+  constructor(llmService: LLMService, registry: AgentRegistry) {
     const config: AgentConfig = {
       identity: {
         id: 'supervisor-main',
@@ -175,55 +43,17 @@ export class SupervisorAgentImpl extends AbstractAgent implements ISupervisorAge
         canUseChannels: ['*'],
         maxConcurrentTasks: 10,
       },
-      systemPrompt: `You are OllieBot, a supervisor agent that orchestrates a team of specialized agents.
-
-Your capabilities:
-- Directly answer simple questions yourself
-- Delegate complex or specialized tasks to sub-agents
-- Coordinate multiple agents working on related tasks
-- Synthesize results from multiple agents
-
-Available specialist types you can spawn:
-- researcher: For research, information gathering, fact-finding, learning about topics, exploring subjects. Use when the task requires gathering knowledge or understanding a topic (e.g., "tell me about X", "what are the best Y", "fun things to do in Z").
-- coder: For programming, writing code, debugging, technical implementation. Use when the task explicitly requires writing software code.
-- writer: For writing documents, editing text, creative writing, content creation. Use when the task requires producing written content like articles, emails, or stories.
-- planner: For planning, organizing, breaking down complex projects. Use when the task requires creating a structured plan or timeline.
-
-When you decide to delegate, respond with a JSON block:
-\`\`\`delegate
-{
-  "type": "researcher|coder|writer|planner|custom",
-  "rationale": "Brief explanation of why this agent type was chosen",
-  "mission": "specific task description",
-  "customName": "optional custom agent name",
-  "customEmoji": "optional emoji"
-}
-\`\`\`
-
-IMPORTANT: Choose the agent based on the PRIMARY nature of the task:
-- If the task is about LEARNING or FINDING INFORMATION about a topic → researcher
-- If the task is about WRITING CODE → coder
-- If the task is about CREATING WRITTEN CONTENT → writer
-- Creating a presentation about a topic is primarily a RESEARCH + WRITING task, NOT a coding task
-
-For simple questions, just respond directly. Only delegate when specialized expertise or parallel work would be beneficial.
-
-## Memory
-You have access to a 'remember' tool for saving important information to long-term memory.
-BE VERY SELECTIVE - only use it for critical information that will be valuable in future conversations:
-- User preferences (name, communication style, timezone)
-- Important project decisions or context
-- Key facts the user explicitly wants remembered
-DO NOT remember: temporary info, things easily re-asked, conversation details, or trivial facts.
-Every memory adds to context window consumption for ALL future calls.`,
+      systemPrompt: registry.loadAgentPrompt('supervisor'),
     };
 
     super(config, llmService);
+    this.agentRegistry = registry;
   }
 
   async init(): Promise<void> {
     await super.init();
-    console.log(`[${this.identity.name}] Supervisor initialized with ${Object.keys(SPECIALIST_IDENTITIES).length} specialist types`);
+    const specialistCount = this.agentRegistry.getSpecialistTypes().length;
+    console.log(`[${this.identity.name}] Supervisor initialized with ${specialistCount} specialist types`);
   }
 
   registerChannel(channel: Channel): void {
@@ -324,6 +154,7 @@ Every memory adds to context window consumption for ALL future calls.`,
           webChannel.broadcast({
             ...event,
             result: resultForBroadcast,
+            conversationId: this.currentConversationId || undefined,
             timestamp: event.timestamp.toISOString(),
             startTime: 'startTime' in event ? event.startTime.toISOString() : undefined,
             endTime: 'endTime' in event ? event.endTime.toISOString() : undefined,
@@ -336,23 +167,51 @@ Every memory adds to context window consumption for ALL future calls.`,
     }
 
     try {
-      // Start stream with agent info
+      // Start stream with agent info and conversation context
       channel.startStream!(streamId, {
         agentId: this.identity.id,
         agentName: this.identity.name,
         agentEmoji: this.identity.emoji,
+        conversationId: this.currentConversationId || undefined,
       });
 
       const systemPrompt = this.buildSystemPrompt();
       const tools = this.getToolsForLLM();
 
-      // Build initial messages
+      // Build initial messages, including image attachments
       let llmMessages: LLMMessage[] = [
         { role: 'system', content: systemPrompt },
-        ...this.conversationHistory.slice(-10).map((m) => ({
-          role: m.role,
-          content: m.content,
-        })),
+        ...this.conversationHistory.slice(-10).map((m) => {
+          // Check if message has image attachments
+          const imageAttachments = m.attachments?.filter(a => a.type.startsWith('image/')) || [];
+
+          if (imageAttachments.length > 0 && m.role === 'user') {
+            // Build multimodal content with text and images
+            const content: Array<{ type: 'text' | 'image'; text?: string; source?: { type: 'base64'; media_type: string; data: string } }> = [];
+
+            // Add text content first (content should always be string from Message type)
+            if (m.content && typeof m.content === 'string') {
+              content.push({ type: 'text', text: m.content });
+            }
+
+            // Add image attachments
+            for (const att of imageAttachments) {
+              content.push({
+                type: 'image',
+                source: {
+                  type: 'base64',
+                  media_type: att.type,
+                  data: att.data,
+                },
+              });
+            }
+
+            return { role: m.role, content };
+          }
+
+          // Regular text-only message
+          return { role: m.role, content: m.content };
+        }),
       ];
 
       // Tool execution loop - continues until LLM stops requesting tools
@@ -364,18 +223,45 @@ Every memory adds to context window consumption for ALL future calls.`,
         iterationCount++;
 
         if (tools.length > 0 && this.toolRunner) {
-          // Use tool-enabled generation
-          const response = await this.llmService.generateWithTools(llmMessages, { tools });
+          // Use tool-enabled streaming generation
+          // Buffer to filter out delegation blocks which shouldn't be shown to users
+          let streamBuffer = '';
+          const response = await this.llmService.generateWithToolsStream(
+            llmMessages,
+            {
+              onChunk: (chunk: string) => {
+                fullResponse += chunk;
+                streamBuffer += chunk;
 
-          // Add any text content to the stream
-          if (response.content) {
-            fullResponse += response.content;
-            // Filter out delegation blocks from streamed output (user shouldn't see internal JSON)
-            const displayContent = response.content.replace(/```delegate\s*[\s\S]*?```/g, '').trim();
-            if (displayContent) {
-              channel.sendStreamChunk!(streamId, displayContent);
-            }
-          }
+                // Check if we're in the middle of a potential delegation block
+                const inDelegateBlock = streamBuffer.includes('```delegate') && !streamBuffer.includes('```delegate\n') ||
+                  streamBuffer.includes('```d') && !streamBuffer.includes('```delegate');
+
+                // If not in a delegation block, send filtered content
+                if (!inDelegateBlock) {
+                  const displayContent = streamBuffer.replace(/```delegate\s*[\s\S]*?```/g, '').trim();
+                  if (displayContent) {
+                    channel.sendStreamChunk!(streamId, displayContent, this.currentConversationId || undefined);
+                  }
+                  streamBuffer = '';
+                }
+              },
+              onComplete: () => {
+                // Flush any remaining buffered content (filtered)
+                if (streamBuffer) {
+                  const displayContent = streamBuffer.replace(/```delegate\s*[\s\S]*?```/g, '').trim();
+                  if (displayContent) {
+                    channel.sendStreamChunk!(streamId, displayContent, this.currentConversationId || undefined);
+                  }
+                  streamBuffer = '';
+                }
+              },
+              onError: (error: Error) => {
+                console.error('[Supervisor] Stream error:', error);
+              },
+            },
+            { tools }
+          );
 
           // Check if LLM requested tool use
           if (response.toolUse && response.toolUse.length > 0) {
@@ -431,7 +317,7 @@ Every memory adds to context window consumption for ALL future calls.`,
                   // Remove any delegation blocks that are complete
                   const displayContent = streamBuffer.replace(/```delegate\s*[\s\S]*?```/g, '').trim();
                   if (displayContent) {
-                    channel.sendStreamChunk!(streamId, displayContent);
+                    channel.sendStreamChunk!(streamId, displayContent, this.currentConversationId || undefined);
                   }
                   streamBuffer = '';
                 }
@@ -441,7 +327,7 @@ Every memory adds to context window consumption for ALL future calls.`,
                 if (streamBuffer) {
                   const displayContent = streamBuffer.replace(/```delegate\s*[\s\S]*?```/g, '').trim();
                   if (displayContent) {
-                    channel.sendStreamChunk!(streamId, displayContent);
+                    channel.sendStreamChunk!(streamId, displayContent, this.currentConversationId || undefined);
                   }
                 }
               },
@@ -454,7 +340,7 @@ Every memory adds to context window consumption for ALL future calls.`,
         }
       }
 
-      channel.endStream!(streamId);
+      channel.endStream!(streamId, this.currentConversationId || undefined);
 
       // Check for delegation in complete response
       const delegationMatch = fullResponse.match(/```delegate\s*([\s\S]*?)```/);
@@ -469,7 +355,7 @@ Every memory adds to context window consumption for ALL future calls.`,
         this.saveAssistantMessage(message.channel, fullResponse);
       }
     } catch (error) {
-      channel.endStream!(streamId);
+      channel.endStream!(streamId, this.currentConversationId || undefined);
       await this.sendError(channel, 'Streaming error', error instanceof Error ? error.message : String(error));
     } finally {
       // Cleanup tool event subscription
@@ -494,11 +380,14 @@ Every memory adds to context window consumption for ALL future calls.`,
       console.log(`  Rationale: ${rationale || 'Not provided'}`);
       console.log(`  Mission: ${mission}`);
 
-      // Spawn appropriate agent
-      const agentId = await this.spawnAgent({
-        identity: this.createAgentIdentity(type, customName, customEmoji),
-        mission,
-      });
+      // Spawn appropriate agent (pass type explicitly for prompt loading)
+      const agentId = await this.spawnAgent(
+        {
+          identity: this.createAgentIdentity(type, customName, customEmoji),
+          mission,
+        },
+        type
+      );
 
       const agent = this.subAgents.get(agentId);
       if (!agent) {
@@ -525,9 +414,21 @@ Every memory adds to context window consumption for ALL future calls.`,
           agentType: type,
           mission,
           rationale,
+          conversationId: this.currentConversationId || undefined,
           timestamp: new Date().toISOString(),
         });
       }
+
+      // Persist delegation event to database for reload
+      this.saveDelegationEvent(
+        originalMessage.channel,
+        agent.identity.id,
+        agent.identity.name,
+        agent.identity.emoji,
+        type,
+        mission,
+        rationale
+      );
 
       // Create task assignment
       const task = await this.delegateTask(mission);
@@ -558,9 +459,9 @@ Every memory adds to context window consumption for ALL future calls.`,
     customName?: string,
     customEmoji?: string
   ): AgentIdentity {
-    const template = SPECIALIST_IDENTITIES[type];
+    const template = this.agentRegistry.getSpecialistTemplate(type);
 
-    if (template?.identity) {
+    if (template) {
       return {
         ...template.identity,
         id: `${type}-${uuid().slice(0, 8)}`,
@@ -579,15 +480,15 @@ Every memory adds to context window consumption for ALL future calls.`,
     };
   }
 
-  async spawnAgent(partialConfig: Partial<AgentConfig>): Promise<string> {
-    const type = partialConfig.identity?.role === 'specialist'
-      ? Object.keys(SPECIALIST_IDENTITIES).find(
-          (k) => SPECIALIST_IDENTITIES[k].identity?.name === partialConfig.identity?.name
-        ) || 'custom'
-      : 'custom';
+  async spawnAgent(partialConfig: Partial<AgentConfig>, agentType?: string): Promise<string> {
+    // Use explicit type if provided, otherwise try to infer from identity name
+    const type = agentType
+      || (partialConfig.identity?.role === 'specialist'
+        ? this.agentRegistry.findSpecialistTypeByName(partialConfig.identity?.name || '') || 'custom'
+        : 'custom');
 
-    // Load prompt from external file (with fallback to default)
-    const systemPrompt = loadAgentPrompt(type);
+    // Load prompt from .md file via registry
+    const systemPrompt = this.agentRegistry.loadAgentPrompt(type) || '';
 
     const config: AgentConfig = {
       identity: partialConfig.identity || {
@@ -610,7 +511,7 @@ Every memory adds to context window consumption for ALL future calls.`,
     };
 
     const agent = new WorkerAgent(config, this.llmService);
-    agent.setRegistry(this.agentRegistry!);
+    agent.setRegistry(this.agentRegistry);
 
     // Pass the tool runner to worker agents so they can use MCP, skills, and native tools
     if (this.toolRunner) {
@@ -619,9 +520,9 @@ Every memory adds to context window consumption for ALL future calls.`,
 
     await agent.init();
     this.subAgents.set(agent.identity.id, agent);
-    this.agentRegistry?.registerAgent(agent);
+    this.agentRegistry.registerAgent(agent);
 
-    console.log(`[${this.identity.name}] Spawned ${agent.identity.emoji} ${agent.identity.name}`);
+    console.log(`[${this.identity.name}] Spawned ${agent.identity.emoji} ${agent.identity.name} (type: ${type}, prompt: ${systemPrompt.length} chars)`);
 
     return agent.identity.id;
   }
@@ -631,7 +532,7 @@ Every memory adds to context window consumption for ALL future calls.`,
     if (agent) {
       await agent.shutdown();
       this.subAgents.delete(agentId);
-      this.agentRegistry?.unregisterAgent(agentId);
+      this.agentRegistry.unregisterAgent(agentId);
       console.log(`[${this.identity.name}] Terminated agent: ${agentId}`);
     }
   }
@@ -691,7 +592,7 @@ Every memory adds to context window consumption for ALL future calls.`,
     }
   }
 
-  private ensureConversation(channel: string, firstMessageContent?: string): string {
+  private ensureConversation(channel: string, firstMessageContent?: string | unknown[]): string {
     const db = getDb();
 
     // If we have a current conversation, update its timestamp and return it
@@ -712,9 +613,16 @@ Every memory adds to context window consumption for ALL future calls.`,
     // Create a new conversation
     const id = uuid();
     const now = new Date().toISOString();
-    // Generate title from first message (truncate to 50 chars)
-    const title = firstMessageContent
-      ? firstMessageContent.substring(0, 50) + (firstMessageContent.length > 50 ? '...' : '')
+    // Generate temporary title from first message (truncate to 20 chars)
+    // Will be auto-named with a better title after 3 messages
+    // Handle multimodal content by extracting text
+    const textContent = typeof firstMessageContent === 'string'
+      ? firstMessageContent
+      : Array.isArray(firstMessageContent)
+        ? (firstMessageContent as Array<{ type: string; text?: string }>).filter((b) => b.type === 'text').map((b) => b.text).join(' ')
+        : '';
+    const title = textContent
+      ? textContent.substring(0, 20).trim() + (textContent.length > 20 ? '...' : '')
       : 'New Conversation';
 
     db.conversations.create({
@@ -771,13 +679,23 @@ Every memory adds to context window consumption for ALL future calls.`,
       const db = getDb();
       const conversationId = this.ensureConversation(message.channel, message.role === 'user' ? message.content : undefined);
 
+      // Include attachment info in metadata (without base64 data)
+      const metadata = {
+        ...(message.metadata || {}),
+        attachments: message.attachments?.map(a => ({
+          name: a.name,
+          type: a.type,
+          size: a.size,
+        })),
+      };
+
       db.messages.create({
         id: message.id,
         conversationId,
         channel: message.channel,
         role: message.role,
         content: message.content,
-        metadata: message.metadata || {},
+        metadata,
         createdAt: message.createdAt.toISOString(),
       });
 
@@ -811,7 +729,7 @@ Every memory adds to context window consumption for ALL future calls.`,
 
       if (messages.length < 3) return;
 
-      // Build context from messages
+      // Build context from messages (database messages always have string content)
       const context = messages
         .map((m) => `${m.role}: ${m.content.substring(0, 200)}`)
         .join('\n');
@@ -869,7 +787,7 @@ Every memory adds to context window consumption for ALL future calls.`,
   /**
    * Save tool events to database for persistence
    */
-  private saveToolEvent(event: { type: string; requestId: string; toolName: string; source: string; [key: string]: unknown }, channelId: string): void {
+  private saveToolEvent(event: ToolEvent, channelId: string): void {
     // Only save completed events (to avoid duplicates - requested + finished)
     if (event.type !== 'tool_execution_finished') {
       return;
@@ -921,6 +839,52 @@ Every memory adds to context window consumption for ALL future calls.`,
       });
     } catch (error) {
       console.error(`[${this.identity.name}] Failed to save tool event:`, error);
+    }
+  }
+
+  /**
+   * Save delegation events to database for persistence
+   */
+  private saveDelegationEvent(
+    channelId: string,
+    agentId: string,
+    agentName: string,
+    agentEmoji: string,
+    agentType: string,
+    mission: string,
+    rationale?: string
+  ): void {
+    try {
+      const db = getDb();
+      const conversationId = this.currentConversationId || this.ensureConversation(channelId);
+
+      const messageId = `delegation-${agentId}`;
+
+      // Check if this delegation was already saved (avoid duplicates)
+      const existing = db.messages.findById(messageId);
+      if (existing) {
+        return;
+      }
+
+      db.messages.create({
+        id: messageId,
+        conversationId,
+        channel: channelId,
+        role: 'system', // Special role for system events
+        content: '', // No text content
+        metadata: {
+          type: 'delegation',
+          agentId,
+          agentName,
+          agentEmoji,
+          agentType,
+          mission,
+          rationale,
+        },
+        createdAt: new Date().toISOString(),
+      });
+    } catch (error) {
+      console.error(`[${this.identity.name}] Failed to save delegation event:`, error);
     }
   }
 }

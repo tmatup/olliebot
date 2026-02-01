@@ -1,10 +1,18 @@
 // Communication channel abstraction types
 
+export interface MessageAttachment {
+  name: string;
+  type: string;
+  size: number;
+  data: string; // base64 encoded
+}
+
 export interface Message {
   id: string;
   channel: string;
   role: 'user' | 'assistant' | 'system';
   content: string;
+  attachments?: MessageAttachment[];
   metadata?: Record<string, unknown>;
   createdAt: Date;
 }
@@ -28,6 +36,9 @@ export interface ChannelEvent {
   data: unknown;
 }
 
+/**
+ * Channel is communication channel, example: web, console, 3rd party chat apps like Microsoft Teams, Slack, etc.
+ */
 export interface Channel {
   readonly id: string;
   readonly name: string;
@@ -42,9 +53,9 @@ export interface Channel {
   sendError(error: string, details?: string): Promise<void>;
 
   // Streaming support (optional)
-  startStream?(streamId: string, agentInfo?: { agentId?: string; agentName?: string; agentEmoji?: string }): void;
-  sendStreamChunk?(streamId: string, chunk: string): void;
-  endStream?(streamId: string): void;
+  startStream?(streamId: string, agentInfo?: { agentId?: string; agentName?: string; agentEmoji?: string; conversationId?: string }): void;
+  sendStreamChunk?(streamId: string, chunk: string, conversationId?: string): void;
+  endStream?(streamId: string, conversationId?: string): void;
 
   // Register message handler
   onMessage(handler: (message: Message) => Promise<void>): void;

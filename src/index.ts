@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import { join } from 'path';
 import { initDb, closeDb } from './db/index.js';
+import { ensureWellKnownConversations, WellKnownConversations } from './db/well-known-conversations.js';
 import { SupervisorAgentImpl, getAgentRegistry } from './agents/index.js';
 import {
   LLMService,
@@ -30,10 +31,19 @@ import {
   RememberTool,
   ReadSkillTool,
   RunSkillScriptTool,
+  HttpClientTool,
 } from './tools/index.js';
 import { TaskManager } from './tasks/index.js';
 import { MemoryService } from './memory/index.js';
 import { UserToolManager } from './tools/user/index.js';
+import {
+  BrowserSessionManager,
+  loadBrowserConfig,
+  BrowserSessionTool,
+  BrowserNavigateTool,
+  BrowserActionTool,
+  BrowserScreenshotTool,
+} from './browser/index.js';
 
 /**
  * Parse MCP server configurations from various formats.
@@ -100,16 +110,16 @@ function parseMCPServers(configStr: string): MCPServerConfig[] {
 const CONFIG = {
   port: parseInt(process.env.PORT || '3000', 10),
   dbPath: process.env.DB_PATH || join(process.cwd(), 'user', 'data', 'olliebot.db'),
-  configDir: process.env.CONFIG_DIR || join(process.cwd(), 'user', 'tasks'),
-  skillsDir: process.env.SKILLS_DIR || join(process.cwd(), 'user', 'skills'),
-  userToolsDir: process.env.USER_TOOLS_DIR || join(process.cwd(), 'user', 'tools'),
+  tasksDir: join(process.cwd(), 'user', 'tasks'),
+  skillsDir: join(process.cwd(), 'user', 'skills'),
+  userToolsDir: join(process.cwd(), 'user', 'tools'),
 
   // LLM Configuration
   // Supported providers: 'anthropic', 'google', 'openai', 'azure_openai'
-  mainProvider: process.env.MAIN_PROVIDER || 'anthropic',
-  mainModel: process.env.MAIN_MODEL || 'claude-sonnet-4-20250514',
-  fastProvider: process.env.FAST_PROVIDER || 'google',
-  fastModel: process.env.FAST_MODEL || 'gemini-2.5-flash-lite',
+  mainProvider: process.env.MAIN_PROVIDER || 'openai',
+  mainModel: process.env.MAIN_MODEL || 'gpt-5.2',
+  fastProvider: process.env.FAST_PROVIDER || 'openai',
+  fastModel: process.env.FAST_MODEL || 'gpt-4.1-mini',
 
   // API Keys
   anthropicApiKey: process.env.ANTHROPIC_API_KEY || '',
@@ -122,14 +132,14 @@ const CONFIG = {
   azureOpenaiApiVersion: process.env.AZURE_OPENAI_API_VERSION || '2024-02-15-preview',
 
   // Embedding provider: 'google', 'openai', 'azure_openai'
-  embeddingProvider: process.env.EMBEDDING_PROVIDER || 'google',
+  embeddingProvider: process.env.EMBEDDING_PROVIDER || 'openai',
 
   // MCP Configuration (JSON string of server configs)
   mcpServers: process.env.MCP_SERVERS || '[]',
 
   // Native tool API keys
-  imageGenProvider: (process.env.IMAGE_GEN_PROVIDER || 'openai') as 'openai' | 'stability',
-  stabilityApiKey: process.env.STABILITY_API_KEY || '',
+  imageGenProvider: (process.env.IMAGE_GEN_PROVIDER || 'openai') as 'openai' | 'azure_openai',
+  imageGenModel: process.env.IMAGE_GEN_MODEL || 'dall-e-3',
 
   // Web search configuration
   webSearchProvider: (process.env.WEB_SEARCH_PROVIDER || 'serper') as WebSearchProvider,
@@ -281,6 +291,7 @@ async function main(): Promise<void> {
   // Initialize database
   console.log('[Init] Initializing database...');
   await initDb(CONFIG.dbPath);
+  ensureWellKnownConversations();
 
   // Initialize LLM service with Main and Fast providers
   console.log('[Init] Initializing LLM service...');
@@ -341,6 +352,7 @@ async function main(): Promise<void> {
 
   // Register native tools
   toolRunner.registerNativeTool(new WikipediaSearchTool());
+  toolRunner.registerNativeTool(new HttpClientTool());
 
   // Web search (requires API key)
   if (CONFIG.webSearchApiKey) {
@@ -360,17 +372,23 @@ async function main(): Promise<void> {
   toolRunner.registerNativeTool(new TakeScreenshotTool());
   toolRunner.registerNativeTool(new AnalyzeImageTool(llmService));
 
-  // Image generation (requires API key)
-  const imageApiKey = CONFIG.imageGenProvider === 'openai'
-    ? CONFIG.openaiApiKey
-    : CONFIG.stabilityApiKey;
+  // Image generation (requires API key based on provider)
+  const imageApiKey = CONFIG.imageGenProvider === 'azure_openai'
+    ? CONFIG.azureOpenaiApiKey
+    : CONFIG.openaiApiKey;
+  console.log(`[Init] Image generation: provider=${CONFIG.imageGenProvider}, hasApiKey=${!!imageApiKey}`);
   if (imageApiKey) {
     toolRunner.registerNativeTool(
       new CreateImageTool({
         apiKey: imageApiKey,
         provider: CONFIG.imageGenProvider,
+        model: CONFIG.imageGenModel,
+        azureEndpoint: CONFIG.azureOpenaiEndpoint,
+        azureApiVersion: CONFIG.azureOpenaiApiVersion,
       })
     );
+  } else {
+    console.log('[Init] CreateImageTool not registered: no API key configured');
   }
 
   // Memory tool (always available)
@@ -379,6 +397,21 @@ async function main(): Promise<void> {
   // Skill tools (for Agent Skills spec)
   toolRunner.registerNativeTool(new ReadSkillTool(CONFIG.skillsDir));
   toolRunner.registerNativeTool(new RunSkillScriptTool(CONFIG.skillsDir));
+
+  // Initialize Browser Session Manager
+  console.log('[Init] Initializing browser session manager...');
+  const browserConfig = loadBrowserConfig();
+  const browserManager = new BrowserSessionManager({
+    defaultConfig: browserConfig,
+    llmService: llmService as unknown as import('./browser/manager.js').ILLMService,
+  });
+
+  // Register browser tools
+  toolRunner.registerNativeTool(new BrowserSessionTool(browserManager));
+  toolRunner.registerNativeTool(new BrowserNavigateTool(browserManager));
+  toolRunner.registerNativeTool(new BrowserActionTool(browserManager));
+  toolRunner.registerNativeTool(new BrowserScreenshotTool(browserManager));
+  console.log('[Init] Browser tools registered');
 
   // Initialize User Tool Manager (watches user/tools for .md tool definitions)
   console.log('[Init] Initializing user tool manager...');
@@ -415,14 +448,15 @@ async function main(): Promise<void> {
   // Initialize Task Manager (watches user/tasks for .md task configs)
   console.log('[Init] Initializing task manager...');
   const taskManager = new TaskManager({
-    configDir: CONFIG.configDir,
+    tasksDir: CONFIG.tasksDir,
     llmService,
   });
   await taskManager.init();
 
   // Create supervisor agent (multi-agent architecture)
   console.log('[Init] Creating supervisor agent...');
-  const supervisor = new SupervisorAgentImpl(llmService);
+  const registry = getAgentRegistry();
+  const supervisor = new SupervisorAgentImpl(llmService, registry);
 
   // Set tool runner, memory service, and skill manager on supervisor
   supervisor.setToolRunner(toolRunner);
@@ -430,7 +464,6 @@ async function main(): Promise<void> {
   supervisor.setSkillManager(skillManager);
 
   // Register with global agent registry
-  const registry = getAgentRegistry();
   registry.registerAgent(supervisor);
 
   // Initialize supervisor
@@ -455,8 +488,47 @@ async function main(): Promise<void> {
       skillManager,
       toolRunner,
       llmService,
+      browserManager,
+      taskManager,
     });
     await server.start();
+
+    // Listen for scheduled tasks that are due
+    taskManager.on('task:due', async ({ task }) => {
+      console.log(`[Scheduler] Running scheduled task: ${task.name}`);
+      try {
+        const taskDescription = (task.jsonConfig as { description?: string }).description || '';
+
+        // Create a task message for the supervisor
+        // Route to the well-known :feed: conversation for background tasks
+        const taskMessage = {
+          id: crypto.randomUUID(),
+          channel: 'web-main',  // Use web channel so responses are visible in UI
+          role: 'user' as const,
+          content: `[Scheduled Task] Run the "${task.name}" task now. Here is the task configuration:\n\n${JSON.stringify(task.jsonConfig, null, 2)}`,
+          createdAt: new Date(),
+          metadata: {
+            type: 'task_run',
+            taskId: task.id,
+            taskName: task.name,
+            taskDescription,
+            scheduled: true,
+            conversationId: WellKnownConversations.FEED,  // Route to feed conversation
+          },
+        };
+
+        // Mark the task as executed (updates lastRun and nextRun)
+        taskManager.markTaskExecuted(task.id);
+
+        // Send to supervisor
+        await supervisor.handleMessage(taskMessage);
+      } catch (error) {
+        console.error(`[Scheduler] Error running scheduled task "${task.name}":`, error);
+      }
+    });
+
+    // Start the task scheduler (after event listeners are set up)
+    taskManager.startScheduler();
 
     console.log(`
 ✅ OllieBot ready! (Multi-Agent Architecture)
@@ -465,7 +537,7 @@ async function main(): Promise<void> {
   📡 WebSocket:  ws://localhost:${CONFIG.port}
   📚 API:        http://localhost:${CONFIG.port}/api
 
-  📁 Config:     ${CONFIG.configDir}
+  📁 Config:     ${CONFIG.tasksDir}
   🗄️  Database:   ${CONFIG.dbPath}
   🧠 Main LLM:   ${CONFIG.mainProvider}/${CONFIG.mainModel}
   ⚡ Fast LLM:   ${CONFIG.fastProvider}/${CONFIG.fastModel}
@@ -478,6 +550,7 @@ async function main(): Promise<void> {
   const shutdown = async (): Promise<void> => {
     console.log('\n[Shutdown] Gracefully shutting down...');
     await registry.shutdown();
+    await browserManager.shutdown();
     await taskManager.close();
     await userToolManager.close();
     await skillManager.close();

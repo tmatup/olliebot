@@ -74,10 +74,25 @@ export interface OpenAIEmbeddingResponse {
 // Request Message Types
 // ============================================================================
 
+/** Content part for multimodal messages */
+export interface OpenAITextContentPart {
+  type: 'text';
+  text: string;
+}
+
+export interface OpenAIImageContentPart {
+  type: 'image_url';
+  image_url: {
+    url: string;
+  };
+}
+
+export type OpenAIContentPart = OpenAITextContentPart | OpenAIImageContentPart;
+
 /** Basic message for chat completions */
 export interface OpenAIRequestMessage {
   role: string;
-  content: string;
+  content: string | OpenAIContentPart[];
 }
 
 /** Tool call structure for request messages */

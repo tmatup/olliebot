@@ -1,8 +1,20 @@
 // LLM service abstraction types
 
+// Content block for multimodal messages
+export interface LLMContentBlock {
+  type: 'text' | 'image';
+  text?: string;
+  // For image content
+  source?: {
+    type: 'base64';
+    media_type: string;
+    data: string;
+  };
+}
+
 export interface LLMMessage {
   role: 'user' | 'assistant' | 'system';
-  content: string;
+  content: string | LLMContentBlock[];
   // For tool use responses
   toolUse?: LLMToolUse[];
 }
@@ -66,6 +78,13 @@ export interface LLMProvider {
 
   // Generate a streaming completion
   stream?(messages: LLMMessage[], callbacks: StreamCallbacks, options?: LLMOptions): Promise<void>;
+
+  // Generate streaming completion with tool use support
+  streamWithTools?(
+    messages: LLMMessage[],
+    callbacks: StreamCallbacks & { onToolUse?: (toolUse: LLMToolUse[]) => void },
+    options?: LLMOptions
+  ): Promise<LLMResponseWithTools>;
 
   // Generate embeddings (optional)
   embed?(text: string): Promise<number[]>;

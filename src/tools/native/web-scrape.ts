@@ -7,7 +7,28 @@
 
 import type { NativeTool, NativeToolResult } from './types.js';
 
-export type WebScrapeOutputMode = 'short_summary' | 'detailed_summary';
+export type WebScrapeOutputMode = 'short_summary' | 'detailed_summary' | 'full_content';
+
+/**
+ * Text MIME types that should return full content without summarization.
+ */
+const TEXT_MIME_TYPES = [
+  'text/plain',
+  'text/markdown',
+  'text/x-markdown',
+  'text/csv',
+  'text/css',
+  'text/javascript',
+  'text/xml',
+  'text/yaml',
+  'text/x-yaml',
+  'application/json',
+  'application/xml',
+  'application/javascript',
+  'application/x-javascript',
+  'application/yaml',
+  'application/x-yaml',
+];
 
 export interface WebScrapeConfig {
   /** LLM service for generating summaries */
@@ -18,7 +39,7 @@ export interface WebScrapeConfig {
 
 interface LLMServiceInterface {
   generate(
-    messages: Array<{ role: string; content: string }>,
+    messages: Array<{ role: 'user' | 'assistant' | 'system'; content: string }>,
     options?: { systemPrompt?: string; maxTokens?: number }
   ): Promise<{ content: string }>;
 }
@@ -26,7 +47,7 @@ interface LLMServiceInterface {
 export class WebScrapeTool implements NativeTool {
   readonly name = 'web_scrape';
   readonly description =
-    'Scrape a web page and get a summary of its content. Use this when you need to read and understand the content of a specific URL. Returns either a short summary (key points) or detailed summary (comprehensive overview).';
+    'Scrape a web page and get its content. For HTML pages, returns a summary. For text files (markdown, plain text, JSON, etc.), returns the full content directly.';
   readonly inputSchema = {
     type: 'object',
     properties: {
@@ -36,8 +57,8 @@ export class WebScrapeTool implements NativeTool {
       },
       outputMode: {
         type: 'string',
-        enum: ['short_summary', 'detailed_summary'],
-        description: 'Output mode: "short_summary" for key points (2-3 sentences), "detailed_summary" for comprehensive overview (default: short_summary)',
+        enum: ['short_summary', 'detailed_summary', 'full_content'],
+        description: 'Output mode: "short_summary" for key points, "detailed_summary" for comprehensive overview, "full_content" for raw content. For text MIME types (markdown, plain text, JSON, etc.), full_content is used automatically.',
       },
     },
     required: ['url'],
@@ -100,17 +121,38 @@ export class WebScrapeTool implements NativeTool {
       }
 
       const contentType = response.headers.get('content-type') || '';
-      if (!contentType.includes('text/html') && !contentType.includes('text/plain') && !contentType.includes('application/xhtml')) {
+      const mimeType = contentType.split(';')[0].trim().toLowerCase();
+
+      // Check if this is a text MIME type that should return full content
+      const isTextMimeType = this.isTextMimeType(mimeType);
+      const isHtmlType = mimeType.includes('text/html') || mimeType.includes('application/xhtml');
+
+      // Validate supported content types
+      if (!isTextMimeType && !isHtmlType) {
         return {
           success: false,
-          error: `Unsupported content type: ${contentType}. Only HTML and plain text are supported.`,
+          error: `Unsupported content type: ${contentType}. Only HTML and text-based content types are supported.`,
         };
       }
 
-      const html = await response.text();
+      const rawContent = await response.text();
 
-      // Extract text content from HTML
-      const textContent = this.extractText(html);
+      // For text MIME types (markdown, plain text, JSON, etc.), return full content directly
+      if (isTextMimeType) {
+        return {
+          success: true,
+          output: {
+            url,
+            contentType: mimeType,
+            outputMode: 'full_content',
+            content: rawContent,
+            contentLength: rawContent.length,
+          },
+        };
+      }
+
+      // For HTML content, extract text and optionally summarize
+      const textContent = this.extractText(rawContent);
 
       if (!textContent.trim()) {
         return {
@@ -120,8 +162,24 @@ export class WebScrapeTool implements NativeTool {
       }
 
       // Extract metadata
-      const title = this.extractTitle(html);
-      const description = this.extractMetaDescription(html);
+      const title = this.extractTitle(rawContent);
+      const description = this.extractMetaDescription(rawContent);
+
+      // If full_content requested, return extracted text without summarization
+      if (outputMode === 'full_content') {
+        return {
+          success: true,
+          output: {
+            url,
+            title: title || undefined,
+            metaDescription: description || undefined,
+            contentType: mimeType,
+            outputMode,
+            content: textContent,
+            contentLength: textContent.length,
+          },
+        };
+      }
 
       // Generate summary using LLM
       const summary = await this.generateSummary(textContent, outputMode, title, url);
@@ -132,6 +190,7 @@ export class WebScrapeTool implements NativeTool {
           url,
           title: title || undefined,
           metaDescription: description || undefined,
+          contentType: mimeType,
           outputMode,
           summary,
           contentLength: textContent.length,
@@ -149,6 +208,38 @@ export class WebScrapeTool implements NativeTool {
         error: `Web scrape failed: ${error instanceof Error ? error.message : String(error)}`,
       };
     }
+  }
+
+  /**
+   * Check if the MIME type is a text type that should return full content.
+   */
+  private isTextMimeType(mimeType: string): boolean {
+    // Check exact matches
+    if (TEXT_MIME_TYPES.includes(mimeType)) {
+      return true;
+    }
+
+    // Check for text/* types (except text/html which needs processing)
+    if (mimeType.startsWith('text/') && !mimeType.includes('html')) {
+      return true;
+    }
+
+    // Check for common text-based application types
+    if (mimeType.startsWith('application/') && (
+      mimeType.includes('json') ||
+      mimeType.includes('xml') ||
+      mimeType.includes('yaml') ||
+      mimeType.includes('javascript') ||
+      mimeType.includes('typescript') ||
+      mimeType.includes('toml') ||
+      mimeType.includes('ini') ||
+      mimeType.includes('config') ||
+      mimeType.includes('text')
+    )) {
+      return true;
+    }
+
+    return false;
   }
 
   /**

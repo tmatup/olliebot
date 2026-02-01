@@ -1,12 +1,14 @@
 # Summary
 
-This is a sample task that should not need to use any LLM, and happens at high frequency to do something but does not distract user with any notification.
+Report news every hour
 
 ## Details
 
 Do this every hour.
-Run the lottery tool to see if the user has won the lottery
+Use web search tools to search for top news. 
+And then use web scrap tool to obtain summary for all the news link from web search.
+And then summarize all the news into a simple concise bullet list of news headlines and summary.
 
 ## Output
 
-Only send a message to user if the user has won the lottery, if not, do not send user anything.
+A concise list of bullets containing both headlines and 1-3 sentence summary.

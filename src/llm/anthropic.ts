@@ -9,6 +9,9 @@ import type {
   StreamCallbacks,
 } from './types.js';
 
+// Type alias for Anthropic content block parameters
+type ContentBlockParam = Anthropic.TextBlockParam | Anthropic.ImageBlockParam | Anthropic.ToolUseBlockParam | Anthropic.ToolResultBlockParam;
+
 export class AnthropicProvider implements LLMProvider {
   readonly name = 'anthropic';
   readonly model: string;
@@ -23,17 +26,21 @@ export class AnthropicProvider implements LLMProvider {
   async complete(messages: LLMMessage[], options?: LLMOptions): Promise<LLMResponse> {
     // Separate system message from conversation
     const systemMessage = messages.find((m) => m.role === 'system');
+    const systemContent = typeof systemMessage?.content === 'string'
+      ? systemMessage.content
+      : undefined;
+
     const conversationMessages = messages
       .filter((m) => m.role !== 'system')
       .map((m) => ({
         role: m.role as 'user' | 'assistant',
-        content: m.content,
+        content: m.content as string | ContentBlockParam[],
       }));
 
     const response = await this.client.messages.create({
       model: this.model,
       max_tokens: options?.maxTokens ?? 4096,
-      system: options?.systemPrompt ?? systemMessage?.content,
+      system: options?.systemPrompt ?? systemContent,
       messages: conversationMessages,
       temperature: options?.temperature,
       stop_sequences: options?.stopSequences,
@@ -58,18 +65,22 @@ export class AnthropicProvider implements LLMProvider {
     options?: LLMOptions
   ): Promise<void> {
     const systemMessage = messages.find((m) => m.role === 'system');
+    const systemContent = typeof systemMessage?.content === 'string'
+      ? systemMessage.content
+      : undefined;
+
     const conversationMessages = messages
       .filter((m) => m.role !== 'system')
       .map((m) => ({
         role: m.role as 'user' | 'assistant',
-        content: m.content,
+        content: m.content as string | ContentBlockParam[],
       }));
 
     try {
       const stream = await this.client.messages.stream({
         model: this.model,
         max_tokens: options?.maxTokens ?? 4096,
-        system: options?.systemPrompt ?? systemMessage?.content,
+        system: options?.systemPrompt ?? systemContent,
         messages: conversationMessages,
         temperature: options?.temperature,
         stop_sequences: options?.stopSequences,
@@ -114,6 +125,9 @@ export class AnthropicProvider implements LLMProvider {
     options?: LLMOptions
   ): Promise<LLMResponseWithTools> {
     const systemMessage = messages.find((m) => m.role === 'system');
+    const systemContent = typeof systemMessage?.content === 'string'
+      ? systemMessage.content
+      : undefined;
     const conversationMessages = this.formatMessagesForApi(messages);
 
     const tools = options?.tools?.map((t) => ({
@@ -136,7 +150,7 @@ export class AnthropicProvider implements LLMProvider {
     const stream = await this.client.messages.stream({
       model: this.model,
       max_tokens: options?.maxTokens ?? 4096,
-      system: options?.systemPrompt ?? systemMessage?.content,
+      system: options?.systemPrompt ?? systemContent,
       messages: conversationMessages,
       temperature: options?.temperature,
       stop_sequences: options?.stopSequences,
@@ -166,6 +180,7 @@ export class AnthropicProvider implements LLMProvider {
         if (event.delta.type === 'text_delta') {
           const chunk = event.delta.text;
           fullContent += chunk;
+          console.log(`[Anthropic] Streaming chunk (${chunk.length} chars)`);
           callbacks.onChunk(chunk);
         } else if (event.delta.type === 'input_json_delta' && currentToolUse) {
           currentToolUse.inputJson += event.delta.partial_json;
@@ -215,10 +230,36 @@ export class AnthropicProvider implements LLMProvider {
       .filter((m) => m.role !== 'system')
       .map((m) => {
         if (m.toolUse && m.toolUse.length > 0) {
+          // Content blocks need to be combined with tool_use blocks
+          let contentBlocks: ContentBlockParam[] = [];
+
+          if (m.content) {
+            if (typeof m.content === 'string') {
+              contentBlocks.push({ type: 'text', text: m.content });
+            } else {
+              // Already an array of content blocks (multimodal)
+              contentBlocks = m.content.map((block): ContentBlockParam => {
+                if (block.type === 'text') {
+                  return { type: 'text', text: block.text || '' };
+                } else if (block.type === 'image' && block.source) {
+                  return {
+                    type: 'image',
+                    source: {
+                      type: 'base64',
+                      media_type: block.source.media_type as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp',
+                      data: block.source.data,
+                    },
+                  };
+                }
+                return { type: 'text', text: '' };
+              });
+            }
+          }
+
           return {
             role: m.role as 'user' | 'assistant',
             content: [
-              ...(m.content ? [{ type: 'text' as const, text: m.content }] : []),
+              ...contentBlocks,
               ...m.toolUse.map((tu) => ({
                 type: 'tool_use' as const,
                 id: tu.id,
@@ -230,7 +271,7 @@ export class AnthropicProvider implements LLMProvider {
         }
         return {
           role: m.role as 'user' | 'assistant',
-          content: m.content,
+          content: m.content as string | ContentBlockParam[],
         };
       });
   }
@@ -243,6 +284,9 @@ export class AnthropicProvider implements LLMProvider {
     options?: LLMOptions
   ): Promise<LLMResponseWithTools> {
     const systemMessage = messages.find((m) => m.role === 'system');
+    const systemContent = typeof systemMessage?.content === 'string'
+      ? systemMessage.content
+      : undefined;
     const conversationMessages = this.formatMessagesForApi(messages);
 
     // Format tools for Anthropic API
@@ -267,7 +311,7 @@ export class AnthropicProvider implements LLMProvider {
     const response = await this.client.messages.create({
       model: this.model,
       max_tokens: options?.maxTokens ?? 4096,
-      system: options?.systemPrompt ?? systemMessage?.content,
+      system: options?.systemPrompt ?? systemContent,
       messages: conversationMessages,
       temperature: options?.temperature,
       stop_sequences: options?.stopSequences,

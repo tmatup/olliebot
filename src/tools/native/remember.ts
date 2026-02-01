@@ -10,7 +10,7 @@ import type { MemoryService } from '../../memory/service.js';
 
 export class RememberTool implements NativeTool {
   readonly name = 'remember';
-  readonly description = `Save important information to long-term memory. Use this VERY SELECTIVELY - only for critical information that will be valuable in future conversations. Examples: user preferences, important project details, key decisions made. Do NOT use for: temporary information, things that can be easily re-asked, or trivial details.`;
+  readonly description = `Save important information to long-term memory. Use this selectively - only for critical information that will be valuable in future conversations. Examples: user preferences, important project details, key decisions made. Do NOT use for: temporary information, things that can be easily re-asked, or trivial details.`;
 
   readonly inputSchema = {
     type: 'object',

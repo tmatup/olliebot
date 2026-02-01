@@ -1,0 +1,30 @@
+{
+  "name": "Lottery Check (Every 5 Minutes)",
+  "description": "Runs a lottery check every 5 minutes and only notifies the user if they have won.",
+  "trigger": {
+    "type": "schedule",
+    "schedule": "*/5 * * * *",
+    "event": ""
+  },
+  "actions": [
+    {
+      "type": "tool:lottery.check",
+      "params": {}
+    }
+  ],
+  "mcp": {
+    "whitelist": [],
+    "blacklist": []
+  },
+  "skills": {
+    "whitelist": [],
+    "blacklist": [
+      "llm"
+    ]
+  },
+  "notifications": {
+    "onSuccess": false,
+    "onError": false,
+    "channels": []
+  }
+}

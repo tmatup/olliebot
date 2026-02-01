@@ -5,11 +5,14 @@ import { WebSocketServer } from 'ws';
 import type { SupervisorAgent } from '../agents/types.js';
 import { WebChannel } from '../channels/index.js';
 import { getDb } from '../db/index.js';
+import { isWellKnownConversation, getWellKnownConversationMeta } from '../db/well-known-conversations.js';
 import type { MCPClient } from '../mcp/index.js';
 import type { SkillManager } from '../skills/index.js';
 import type { ToolRunner } from '../tools/index.js';
 import type { LLMService } from '../llm/service.js';
 import { setupEvalRoutes } from './eval-routes.js';
+import type { BrowserSessionManager } from '../browser/index.js';
+import type { TaskManager } from '../tasks/index.js';
 
 export interface ServerConfig {
   port: number;
@@ -18,6 +21,8 @@ export interface ServerConfig {
   skillManager?: SkillManager;
   toolRunner?: ToolRunner;
   llmService?: LLMService;
+  browserManager?: BrowserSessionManager;
+  taskManager?: TaskManager;
 }
 
 export class OllieBotServer {
@@ -31,6 +36,8 @@ export class OllieBotServer {
   private skillManager?: SkillManager;
   private toolRunner?: ToolRunner;
   private llmService?: LLMService;
+  private browserManager?: BrowserSessionManager;
+  private taskManager?: TaskManager;
 
   constructor(config: ServerConfig) {
     this.port = config.port;
@@ -39,6 +46,8 @@ export class OllieBotServer {
     this.skillManager = config.skillManager;
     this.toolRunner = config.toolRunner;
     this.llmService = config.llmService;
+    this.browserManager = config.browserManager;
+    this.taskManager = config.taskManager;
 
     // Create Express app
     this.app = express();
@@ -205,7 +214,27 @@ export class OllieBotServer {
       try {
         const db = getDb();
         const conversations = db.conversations.findAll({ limit: 50 });
-        res.json(conversations);
+
+        // Enhance conversations with well-known metadata and sort
+        const enhanced = conversations.map((c) => {
+          const wellKnownMeta = getWellKnownConversationMeta(c.id);
+          return {
+            ...c,
+            isWellKnown: !!wellKnownMeta,
+            icon: wellKnownMeta?.icon,
+            // Well-known conversations use their fixed title
+            title: wellKnownMeta?.title ?? c.title,
+          };
+        });
+
+        // Sort: well-known conversations first, then by updatedAt
+        enhanced.sort((a, b) => {
+          if (a.isWellKnown && !b.isWellKnown) return -1;
+          if (!a.isWellKnown && b.isWellKnown) return 1;
+          return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+        });
+
+        res.json(enhanced);
       } catch (error) {
         console.error('[API] Failed to fetch conversations:', error);
         res.status(500).json({ error: 'Failed to fetch conversations' });
@@ -216,7 +245,7 @@ export class OllieBotServer {
     this.app.get('/api/conversations/:id/messages', (req: Request, res: Response) => {
       try {
         const db = getDb();
-        const messages = db.messages.findByConversationId(req.params.id);
+        const messages = db.messages.findByConversationId(req.params.id as string);
         res.json(messages.map(m => ({
           id: m.id,
           role: m.role,
@@ -224,8 +253,11 @@ export class OllieBotServer {
           createdAt: m.createdAt,
           agentName: m.metadata?.agentName,
           agentEmoji: m.metadata?.agentEmoji,
-          // Task run metadata
+          // Attachments
+          attachments: m.metadata?.attachments,
+          // Message type (task_run, tool_event, delegation, etc.)
           messageType: m.metadata?.type,
+          // Task run metadata
           taskId: m.metadata?.taskId,
           taskName: m.metadata?.taskName,
           taskDescription: m.metadata?.taskDescription,
@@ -237,6 +269,11 @@ export class OllieBotServer {
           toolError: m.metadata?.error,
           toolParameters: m.metadata?.parameters,
           toolResult: m.metadata?.result,
+          // Delegation metadata
+          delegationAgentId: m.metadata?.agentId,
+          delegationAgentType: m.metadata?.agentType,
+          delegationMission: m.metadata?.mission,
+          delegationRationale: m.metadata?.rationale,
         })));
       } catch (error) {
         console.error('[API] Failed to fetch messages:', error);
@@ -269,11 +306,19 @@ export class OllieBotServer {
       }
     });
 
-    // Soft delete a conversation
+    // Soft delete a conversation (well-known conversations cannot be deleted)
     this.app.delete('/api/conversations/:id', (req: Request, res: Response) => {
       try {
+        const id = req.params.id as string;
+
+        // Prevent deletion of well-known conversations
+        if (isWellKnownConversation(id)) {
+          res.status(403).json({ error: 'Well-known conversations cannot be deleted' });
+          return;
+        }
+
         const db = getDb();
-        db.conversations.softDelete(req.params.id);
+        db.conversations.softDelete(id);
         res.json({ success: true });
       } catch (error) {
         console.error('[API] Failed to delete conversation:', error);
@@ -303,8 +348,11 @@ export class OllieBotServer {
           createdAt: m.createdAt,
           agentName: m.metadata?.agentName,
           agentEmoji: m.metadata?.agentEmoji,
-          // Task run metadata
+          // Attachments
+          attachments: m.metadata?.attachments,
+          // Message type (task_run, tool_event, delegation, etc.)
           messageType: m.metadata?.type,
+          // Task run metadata
           taskId: m.metadata?.taskId,
           taskName: m.metadata?.taskName,
           taskDescription: m.metadata?.taskDescription,
@@ -316,6 +364,11 @@ export class OllieBotServer {
           toolError: m.metadata?.error,
           toolParameters: m.metadata?.parameters,
           toolResult: m.metadata?.result,
+          // Delegation metadata
+          delegationAgentId: m.metadata?.agentId,
+          delegationAgentType: m.metadata?.agentType,
+          delegationMission: m.metadata?.mission,
+          delegationRationale: m.metadata?.rationale,
         })));
       } catch (error) {
         console.error('[API] Failed to fetch messages:', error);
@@ -357,13 +410,18 @@ export class OllieBotServer {
       try {
         const db = getDb();
         const tasks = db.tasks.findAll({ limit: 20 });
-        res.json(tasks.map(t => ({
-          id: t.id,
-          name: t.name,
-          status: t.status,
-          lastRun: t.lastRun,
-          nextRun: t.nextRun,
-        })));
+        res.json(tasks.map(t => {
+          const config = t.jsonConfig as { description?: string; trigger?: { schedule?: string } };
+          return {
+            id: t.id,
+            name: t.name,
+            description: config.description || '',
+            schedule: config.trigger?.schedule || null,
+            status: t.status,
+            lastRun: t.lastRun,
+            nextRun: t.nextRun,
+          };
+        }));
       } catch (error) {
         console.error('[API] Failed to fetch tasks:', error);
         res.json([]);
@@ -392,12 +450,15 @@ export class OllieBotServer {
           this.supervisor.setConversationId(conversationId);
         }
 
+        // Get description from jsonConfig
+        const taskDescription = (task.jsonConfig as { description?: string }).description || '';
+
         // Broadcast task_run event for compact UI display
         this.webChannel.broadcast({
           type: 'task_run',
           taskId: task.id,
           taskName: task.name,
-          taskDescription: task.description,
+          taskDescription,
           timestamp: now,
         });
 
@@ -413,9 +474,14 @@ export class OllieBotServer {
             type: 'task_run',
             taskId: task.id,
             taskName: task.name,
-            taskDescription: task.description,
+            taskDescription,
           },
         };
+
+        // Mark task as executed (updates lastRun and nextRun)
+        if (this.taskManager) {
+          this.taskManager.markTaskExecuted(task.id);
+        }
 
         // Send to supervisor (async - don't wait for completion)
         this.supervisor.handleMessage(taskMessage).catch((error) => {
@@ -451,6 +517,29 @@ export class OllieBotServer {
 
     // Register web channel with supervisor
     this.supervisor.registerChannel(this.webChannel);
+
+    // Attach web channel to browser manager if present
+    if (this.browserManager) {
+      this.browserManager.attachWebChannel(this.webChannel);
+
+      // Handle browser actions from web clients
+      this.webChannel.onBrowserAction(async (action, sessionId) => {
+        console.log(`[Server] Browser action: ${action} for session ${sessionId}`);
+        if (action === 'close' && this.browserManager) {
+          await this.browserManager.closeSession(sessionId);
+        }
+      });
+    }
+
+    // Listen for task updates and broadcast to frontend
+    if (this.taskManager) {
+      this.taskManager.on('task:updated', ({ task }) => {
+        this.webChannel.broadcast({
+          type: 'task_updated',
+          task,
+        });
+      });
+    }
 
     // Start listening
     return new Promise((resolve) => {

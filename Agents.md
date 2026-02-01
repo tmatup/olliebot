@@ -27,6 +27,9 @@ OllieBot is a personal support agent that runs continuously to respond and poll 
 - the MCP and Skills are global, the tasks can pick relevant ones to use. But in the task .json file maybe provide ability to whitelist or blacklist sepcific MCP or Skills to allow for some user control
 - I want this service to have an explicit multi-agent architecture. That means that there isn't a single identity of "OllieBot", sure there is a master or supervisor agent, but there can also be sub-agent that with specific mission or for performing a scoped sub task, and these agents can be spun off by master agent to work on specific task. And these agents could speak in the communication channel without having to speak through the supervisor agent. 
 - User defined tools, Tool Manager supports user defining tool in .md file, and the tool manager will automatically compile that into a .js file that can be used as a tool, with parameter metadata and with runtime sandboxing. Technical details see the `User defined tool` section.
+- The app has a set of well-known conversations. Usually conversations are created on the fly with GUID as id. But I want to have a set of conversations that have fixed ids for specific purpose. And we can pre-create them or re-create them if missing. Well known conversations have fixed names and would not be renamed. Well-known conversation cannot be deleted. And well-known conversation have a special icon or visual appearance that distinguished them. They are also always sorted to the top of the conversation list.
+Here are a list of well-known conversation id in quote and their purpose:
+  - `:feed:`: when tasks were executed in the background, any messages generated are routed to the well known feed conversation. This conversation has a fixed name "Feed". 
 
 ## User defined tool
 

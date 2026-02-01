@@ -90,13 +90,16 @@ export interface BaseAgent {
 
 export interface SupervisorAgent extends BaseAgent {
   // Sub-agent management
-  spawnAgent(config: Partial<AgentConfig>): Promise<string>;
+  spawnAgent(config: Partial<AgentConfig>, agentType?: string): Promise<string>;
   terminateAgent(agentId: string): Promise<void>;
   getSubAgents(): string[];
 
   // Task delegation
   delegateTask(task: string, requirements?: string): Promise<TaskAssignment>;
   getTaskStatus(taskId: string): TaskAssignment | undefined;
+
+  // Channel management
+  registerChannel(channel: Channel): void;
 
   // Conversation management
   setConversationId(conversationId: string | null): void;

@@ -1,14 +1,84 @@
-// Agent Registry - manages all active agents
+// Agent Registry - manages all active agents and specialist templates
 
+import { readFileSync } from 'fs';
+import { join, dirname } from 'path';
+import { fileURLToPath } from 'url';
 import type {
   BaseAgent,
   AgentCommunication,
   AgentIdentity,
 } from './types.js';
 
+// Directory for sub-agent prompts (part of app code)
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const PROMPTS_DIR = __dirname;
+
+/**
+ * Specialist agent template - defines identity and capabilities for a specialist type
+ */
+export interface SpecialistTemplate {
+  type: string;
+  identity: Omit<AgentIdentity, 'id'>;
+}
+
+/**
+ * Built-in specialist templates
+ */
+const SPECIALIST_TEMPLATES: SpecialistTemplate[] = [
+  {
+    type: 'researcher',
+    identity: {
+      name: 'Research Agent',
+      emoji: '🔍',
+      role: 'specialist',
+      description: 'Specializes in research, information gathering, and analysis',
+    },
+  },
+  {
+    type: 'coder',
+    identity: {
+      name: 'Code Agent',
+      emoji: '💻',
+      role: 'specialist',
+      description: 'Specializes in writing, reviewing, and explaining code',
+    },
+  },
+  {
+    type: 'writer',
+    identity: {
+      name: 'Writer Agent',
+      emoji: '✍️',
+      role: 'specialist',
+      description: 'Specializes in writing, editing, and content creation',
+    },
+  },
+  {
+    type: 'planner',
+    identity: {
+      name: 'Planner Agent',
+      emoji: '📋',
+      role: 'specialist',
+      description: 'Specializes in planning, organizing, and task breakdown',
+    },
+  },
+];
+
 export class AgentRegistry {
   private agents: Map<string, BaseAgent> = new Map();
   private agentsByName: Map<string, string> = new Map(); // name -> id
+  private specialists: Map<string, SpecialistTemplate> = new Map();
+
+  constructor() {
+    // Register built-in specialist templates
+    for (const template of SPECIALIST_TEMPLATES) {
+      this.specialists.set(template.type, template);
+    }
+  }
+
+  // ============================================================================
+  // Agent Management
+  // ============================================================================
 
   registerAgent(agent: BaseAgent): void {
     this.agents.set(agent.identity.id, agent);
@@ -44,6 +114,55 @@ export class AgentRegistry {
   getAgentIdentities(): AgentIdentity[] {
     return this.getAllAgents().map((a) => a.identity);
   }
+
+  // ============================================================================
+  // Specialist Templates
+  // ============================================================================
+
+  /**
+   * Get all available specialist types
+   */
+  getSpecialistTypes(): string[] {
+    return Array.from(this.specialists.keys());
+  }
+
+  /**
+   * Get all specialist templates
+   */
+  getSpecialistTemplates(): SpecialistTemplate[] {
+    return Array.from(this.specialists.values());
+  }
+
+  /**
+   * Get a specialist template by type
+   */
+  getSpecialistTemplate(type: string): SpecialistTemplate | undefined {
+    return this.specialists.get(type);
+  }
+
+  /**
+   * Find specialist type by identity name
+   */
+  findSpecialistTypeByName(name: string): string | undefined {
+    for (const [type, template] of this.specialists) {
+      if (template.identity.name === name) {
+        return type;
+      }
+    }
+    return undefined;
+  }
+
+  /**
+   * Load the system prompt for an agent type from its .md file
+   */
+  loadAgentPrompt(type: string): string {
+    const promptPath = join(PROMPTS_DIR, `${type}.md`);
+    return readFileSync(promptPath, 'utf-8').trim();
+  }
+
+  // ============================================================================
+  // Communication
+  // ============================================================================
 
   async routeCommunication(comm: AgentCommunication, toAgentId: string): Promise<void> {
     const targetAgent = this.agents.get(toAgentId);

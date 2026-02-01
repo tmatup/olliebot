@@ -311,10 +311,22 @@ export interface ExtendedChannel extends Channel {
   ): Promise<void>;
 }
 
+// Specialist template type
+export interface SpecialistTemplate {
+  type: string;
+  identity: Omit<AgentIdentity, 'id'>;
+}
+
 // Forward declaration - will be implemented in registry.ts
 export interface AgentRegistry {
   routeCommunication(comm: AgentCommunication, toAgentId: string): Promise<void>;
   getAgent(agentId: string): BaseAgent | undefined;
   registerAgent(agent: BaseAgent): void;
   unregisterAgent(agentId: string): void;
+  // Specialist template methods
+  getSpecialistTypes(): string[];
+  getSpecialistTemplates(): SpecialistTemplate[];
+  getSpecialistTemplate(type: string): SpecialistTemplate | undefined;
+  findSpecialistTypeByName(name: string): string | undefined;
+  loadAgentPrompt(type: string): string;
 }
