@@ -349,4 +349,10 @@ export interface EvalCompleteEvent {
   results: ComparisonResult;
 }
 
-export type EvalEvent = EvalProgressEvent | EvalRunCompleteEvent | EvalCompleteEvent;
+export interface EvalErrorEvent {
+  type: 'eval_error';
+  jobId: string;
+  error: string;
+}
+
+export type EvalEvent = EvalProgressEvent | EvalRunCompleteEvent | EvalCompleteEvent | EvalErrorEvent;

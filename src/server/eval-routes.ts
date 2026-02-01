@@ -135,6 +135,14 @@ export function setupEvalRoutes(app: Express, config: EvalRoutesConfig): Evaluat
           job.status = 'failed';
           job.error = String(error);
         }
+        // Broadcast error event
+        if (config.webChannel) {
+          config.webChannel.broadcast({
+            type: 'eval_error',
+            jobId,
+            error: String(error),
+          });
+        }
       });
     } catch (error) {
       console.error('[EvalAPI] Failed to start evaluation:', error);
@@ -176,6 +184,14 @@ export function setupEvalRoutes(app: Express, config: EvalRoutesConfig): Evaluat
         if (job) {
           job.status = 'failed';
           job.error = String(error);
+        }
+        // Broadcast error event
+        if (config.webChannel) {
+          config.webChannel.broadcast({
+            type: 'eval_error',
+            jobId,
+            error: String(error),
+          });
         }
       });
     } catch (error) {

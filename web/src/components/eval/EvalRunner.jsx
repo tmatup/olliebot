@@ -40,6 +40,10 @@ export function EvalRunner({ evaluation, suite, onBack }) {
             setResults(data.results);
             setProgress(null);
             setLoading(false);
+          } else if (data.type === 'eval_error') {
+            setError(data.error || 'Evaluation failed');
+            setProgress(null);
+            setLoading(false);
           }
         }
       } catch (err) {
@@ -66,35 +70,6 @@ export function EvalRunner({ evaluation, suite, onBack }) {
       setEvalDetails(null);
     }
   }, [evaluation]);
-
-  // Poll for results when job is running (fallback if WebSocket misses events)
-  useEffect(() => {
-    if (!jobId || results) return;
-
-    const pollInterval = setInterval(async () => {
-      try {
-        const res = await fetch(`/api/eval/results/${jobId}`);
-        if (res.ok) {
-          const data = await res.json();
-          if (data.status === 'completed') {
-            setResults(data.results);
-            setProgress(null);
-            setLoading(false);
-            clearInterval(pollInterval);
-          } else if (data.status === 'failed') {
-            setError(data.error || 'Evaluation failed');
-            setProgress(null);
-            setLoading(false);
-            clearInterval(pollInterval);
-          }
-        }
-      } catch (err) {
-        console.error('Failed to poll results:', err);
-      }
-    }, 1000); // Poll every second as fallback
-
-    return () => clearInterval(pollInterval);
-  }, [jobId, results]);
 
   const loadEvaluationDetails = async (path) => {
     try {
