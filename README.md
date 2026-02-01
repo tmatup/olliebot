@@ -6,16 +6,21 @@ Why create this when "XYZ" exists (XYZ = whatever is trending this week)?
 - This is a lab for agent feature set experiments. Because this is a single fully localized code base, it is easier to experiment with different ways that agents could work or even what an agent is.
 
 ## Features
-
 - **Natural Language Configuration**: Define tasks in `.md` files, automatically converted to structured JSON
-- **Multi-Channel Communication**: Web UI, Console CLI, Microsoft Teams
-- **Dual LLM Strategy**: Main (Claude/Gemini) for complex tasks, Fast (Gemini Flash) for summarization
+- **Customizable Sub-agent**: Can launch specialized sub-agent for sub-tasks and these specialized sub-agents have system prompts that are customizable.
 - **MCP Integration**: Connect to Model Context Protocol servers for external tools
-- **SKILL.md Workflows**: Pre-packaged automation workflows
+- **Agent Skills Workflows**: Pre-packaged workflows like those for Claude (open standard)
+- **Git Versioning**: All config changes tracked in local git
+- **Built-in Tools**: Web search, Wikipedia search, web scraping, image analysis, image generation, etc.
+- **User-Defined Tools**: Write tool specs in natural language in `.md`, auto-generate `.js` and execute in sandboxed VM 
+
+## Experimantal Features (not well tested)
+
+- **Browser Automation**: Computer Use models for visual browser automation with live preview
+- **Multi-Channel Communication**: Web UI, Console CLI, Microsoft Teams
 - **A2UI Human-in-the-Loop**: Request user input during automated workflows
 - **RAG System**: Automatic chunking and retrieval for large documents
 - **Git Versioning**: All config changes tracked in local git
-- **Browser Automation**: Computer Use models for visual browser automation with live preview
 
 ## Quick Start
 
@@ -79,6 +84,8 @@ npm run dev:server console
 | `FAST_MODEL` | Fast LLM model | `gemini-2.5-flash-lite` |
 | `PORT` | Server port | `3000` |
 | `MCP_SERVERS` | JSON array of MCP server configs | `[]` |
+| `WEB_SEARCH_API_KEY` | API key for web search (Serper or Google CSE) | Optional |
+| `WEB_SEARCH_PROVIDER` | Web search provider (`serper` or `google_custom_search`) | `serper` |
 
 #### Browser Automation
 
@@ -126,6 +133,36 @@ Create SKILL.md files in `user/skills/` for reusable workflows:
 2. Generate summary
 ```
 
+### User-Defined Tools
+
+Create `.md` files in `user/tools/` to define custom tools. The system automatically:
+1. Watches for new/changed `.md` files
+2. Generates JavaScript implementation using LLM
+3. Executes in a secure VM sandbox with Zod validation
+
+Example (`user/tools/calculate-age.md`):
+```markdown
+# Calculate Age
+
+Calculate a person's age from their birth date.
+
+## Inputs
+| Name | Description | Type | Required |
+|------|-------------|------|----------|
+| birthDate | Birth date in YYYY-MM-DD format | string | yes |
+
+## Output
+Returns an object with `years`, `months`, and `days`.
+
+## Example
+Input: `{ "birthDate": "1990-05-15" }`
+Output: `{ "years": 35, "months": 8, "days": 16 }`
+```
+
+The generated `.js` file is saved alongside the `.md` file and will be regenerated when:
+- The `.md` file is modified
+- The `.js` file is deleted
+
 ## Project Structure
 
 ```
@@ -145,6 +182,7 @@ olliebot/
 ├── user/
 │   ├── tasks/           # Task configuration .md files
 │   ├── sub-agents/      # Sub-agent prompt overrides
+│   ├── tools/           # User-defined tool .md specs (auto-generates .js)
 │   ├── data/            # SQLite database
 │   └── skills/          # SKILL.md workflow files
 ├── turbo.json           # Turbo monorepo config
