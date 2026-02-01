@@ -1141,6 +1141,7 @@ function App() {
 
         {/* Chat Mode Content */}
         {mode === MODES.CHAT && (
+        <>
         <main className="chat-container">
           <div className="messages" ref={messagesContainerRef} onScroll={handleScroll}>
           {messages.length === 0 && (
@@ -1360,6 +1361,7 @@ function App() {
             </button>
           </form>
         </footer>
+        </>
         )}
       </div>
     </div>
