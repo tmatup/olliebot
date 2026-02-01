@@ -81,13 +81,14 @@ export function setupEvalRoutes(app: Express, config: EvalRoutesConfig): Evaluat
   // Get evaluation details
   app.get('/api/eval/:path(*)', (req: Request, res: Response) => {
     try {
+      const path = String(req.params.path);
       // Don't handle special routes
-      if (['list', 'suites', 'run', 'results', 'history'].includes(req.params.path.split('/')[0])) {
+      if (['list', 'suites', 'run', 'results', 'history'].includes(path.split('/')[0])) {
         res.status(404).json({ error: 'Not found' });
         return;
       }
 
-      const evaluation = manager.loadEvaluation(req.params.path);
+      const evaluation = manager.loadEvaluation(path);
       res.json({ evaluation });
     } catch (error) {
       console.error('[EvalAPI] Failed to load evaluation:', error);
@@ -186,7 +187,8 @@ export function setupEvalRoutes(app: Express, config: EvalRoutesConfig): Evaluat
   // Get job status/results
   app.get('/api/eval/results/:jobId', (req: Request, res: Response) => {
     try {
-      const job = activeJobs.get(req.params.jobId);
+      const jobId = String(req.params.jobId);
+      const job = activeJobs.get(jobId);
 
       if (!job) {
         res.status(404).json({ error: 'Job not found' });
@@ -194,7 +196,7 @@ export function setupEvalRoutes(app: Express, config: EvalRoutesConfig): Evaluat
       }
 
       res.json({
-        jobId: req.params.jobId,
+        jobId,
         status: job.status,
         startedAt: job.startedAt,
         results: job.results,
@@ -209,8 +211,9 @@ export function setupEvalRoutes(app: Express, config: EvalRoutesConfig): Evaluat
   // Get historical results for an evaluation
   app.get('/api/eval/history/:evaluationId', (req: Request, res: Response) => {
     try {
+      const evaluationId = String(req.params.evaluationId);
       const limit = parseInt(req.query.limit as string) || 10;
-      const results = manager.loadResults(req.params.evaluationId, limit);
+      const results = manager.loadResults(evaluationId, limit);
       res.json({ results });
     } catch (error) {
       console.error('[EvalAPI] Failed to load history:', error);
@@ -233,9 +236,10 @@ export function setupEvalRoutes(app: Express, config: EvalRoutesConfig): Evaluat
   // Get prompt content
   app.get('/api/prompts/:path(*)', (req: Request, res: Response) => {
     try {
+      const path = String(req.params.path);
       const promptLoader = manager.getRunner().getPromptLoader();
-      const content = promptLoader.loadFromFile(req.params.path);
-      res.json({ path: req.params.path, content });
+      const content = promptLoader.loadFromFile(path);
+      res.json({ path, content });
     } catch (error) {
       console.error('[EvalAPI] Failed to load prompt:', error);
       res.status(404).json({ error: 'Prompt not found' });
