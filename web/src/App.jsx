@@ -1344,17 +1344,16 @@ function App() {
               )}
             </div>
 
-            {/* Browser Sessions Accordion - only show when there are active sessions */}
-            {browserSessions.length > 0 && (
-              <BrowserSessions
-                sessions={browserSessions}
-                selectedSessionId={selectedBrowserSessionId}
-                onSelectSession={handleSelectBrowserSession}
-                onCloseSession={handleCloseBrowserSession}
-                expanded={expandedAccordions.browserSessions}
-                onToggle={() => toggleAccordion('browserSessions')}
-              />
-            )}
+            {/* Browser Sessions Accordion - always visible */}
+            <BrowserSessions
+              sessions={browserSessions}
+              screenshots={browserScreenshots}
+              selectedSessionId={selectedBrowserSessionId}
+              onSelectSession={handleSelectBrowserSession}
+              onCloseSession={handleCloseBrowserSession}
+              expanded={expandedAccordions.browserSessions}
+              onToggle={() => toggleAccordion('browserSessions')}
+            />
           </div>
           </>
         )}

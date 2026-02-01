@@ -2,6 +2,7 @@
  * Browser Sessions Accordion Component
  *
  * Displays active browser automation sessions in the sidebar.
+ * Shows thumbnails of browser screenshots that update in real-time.
  * Clicking a session opens a preview modal.
  */
 
@@ -23,6 +24,7 @@ const STATUS_COLORS = {
  */
 export function BrowserSessions({
   sessions = [],
+  screenshots = {},
   selectedSessionId,
   onSelectSession,
   onCloseSession,
@@ -48,50 +50,70 @@ export function BrowserSessions({
           {sessions.length === 0 ? (
             <div className="accordion-empty">No active sessions</div>
           ) : (
-            sessions.map((session) => (
-              <div
-                key={session.id}
-                className={`accordion-item browser-session-item ${
-                  session.id === selectedSessionId ? 'selected' : ''
-                }`}
-                onClick={() => onSelectSession(session.id)}
-              >
-                <span
-                  className="browser-session-status"
-                  style={{ color: STATUS_COLORS[session.status] || STATUS_COLORS.idle }}
-                  title={session.status}
+            sessions.map((session) => {
+              const screenshot = screenshots[session.id];
+              return (
+                <div
+                  key={session.id}
+                  className={`browser-session-item ${
+                    session.id === selectedSessionId ? 'selected' : ''
+                  }`}
+                  onClick={() => onSelectSession(session.id)}
                 >
-                  ●
-                </span>
-                <div className="browser-session-info">
-                  <span className="browser-session-name">{session.name}</span>
-                  <span className="browser-session-strategy">
-                    {session.strategy === 'computer-use' ? 'CU' : 'DOM'}:{' '}
-                    {session.provider}
-                  </span>
-                  {session.currentUrl && (
+                  {/* Thumbnail container */}
+                  <div className="browser-session-thumbnail-container">
+                    {screenshot?.screenshot ? (
+                      <img
+                        src={`data:image/png;base64,${screenshot.screenshot}`}
+                        alt={session.name}
+                        className="browser-session-thumbnail"
+                      />
+                    ) : (
+                      <div className="browser-session-thumbnail-placeholder">
+                        <span className="browser-session-thumbnail-icon">🌐</span>
+                      </div>
+                    )}
+                    {/* Status indicator overlay */}
                     <span
-                      className="browser-session-url"
-                      title={session.currentUrl}
-                    >
-                      {getHostname(session.currentUrl)}
+                      className="browser-session-status-badge"
+                      style={{ backgroundColor: STATUS_COLORS[session.status] || STATUS_COLORS.idle }}
+                      title={session.status}
+                    />
+                  </div>
+
+                  {/* Session info below thumbnail */}
+                  <div className="browser-session-meta">
+                    <span className="browser-session-name">{session.name}</span>
+                    <span className="browser-session-strategy">
+                      {session.strategy === 'computer-use' ? 'CU' : 'DOM'}:{' '}
+                      {session.provider}
                     </span>
+                    {session.currentUrl && (
+                      <span
+                        className="browser-session-url"
+                        title={session.currentUrl}
+                      >
+                        {getHostname(session.currentUrl)}
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Close button */}
+                  {onCloseSession && (
+                    <button
+                      className="browser-session-close"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onCloseSession(session.id);
+                      }}
+                      title="Close session"
+                    >
+                      ×
+                    </button>
                   )}
                 </div>
-                {onCloseSession && (
-                  <button
-                    className="browser-session-close"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onCloseSession(session.id);
-                    }}
-                    title="Close session"
-                  >
-                    ×
-                  </button>
-                )}
-              </div>
-            ))
+              );
+            })
           )}
         </div>
       )}
