@@ -244,13 +244,19 @@ export class EvaluationRunner {
         toolUse: response.toolUse,
       });
 
-      // Add tool results as user message (Anthropic format)
-      currentMessages.push({
-        role: 'user',
-        content: toolResults.map(r =>
-          `Tool result for ${r.tool_use_id}: ${r.content}`
-        ).join('\n'),
-      });
+      // Add tool results as separate user messages (OpenAI-compatible format)
+      // Each tool result is sent as a JSON object that openai-base.ts parses
+      for (const toolResult of toolResults) {
+        currentMessages.push({
+          role: 'user',
+          content: JSON.stringify({
+            type: 'tool_result',
+            tool_use_id: toolResult.tool_use_id,
+            content: toolResult.content,
+            is_error: toolResult.is_error,
+          }),
+        });
+      }
 
       // If the response had both content and tool use, capture the content
       if (response.content && response.stopReason !== 'tool_use') {
