@@ -373,17 +373,19 @@ Response to evaluate:
 ${response.slice(0, 3000)}
 """
 
-Respond with ONLY a JSON object (no markdown, no explanation):
-{"matched": true/false, "confidence": 0.0-1.0, "matched_text": "the specific text that matches or null"}`;
+Respond with ONLY a JSON object (no markdown):
+{"matched": true or false, "confidence": 0.0 to 1.0, "excerpt": "brief 10-20 word excerpt or null"}`;
 
     try {
       const result = await this.llmService.quickGenerate(
         [{ role: 'user', content: prompt }],
-        { maxTokens: 200 }
+        { maxTokens: 150 }
       );
 
-      // Extract JSON from response
+      // Extract JSON from response - try multiple methods
       let jsonStr = result.content.trim();
+
+      // Remove markdown code blocks
       if (jsonStr.startsWith('```json')) {
         jsonStr = jsonStr.slice(7);
       }
@@ -393,13 +395,29 @@ Respond with ONLY a JSON object (no markdown, no explanation):
       if (jsonStr.endsWith('```')) {
         jsonStr = jsonStr.slice(0, -3);
       }
+      jsonStr = jsonStr.trim();
 
-      const parsed = JSON.parse(jsonStr.trim());
+      // Try to extract JSON object if there's extra text
+      const jsonMatch = jsonStr.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        jsonStr = jsonMatch[0];
+      }
+
+      // Try to fix common JSON issues (truncated strings)
+      if (!jsonStr.endsWith('}')) {
+        // Try to close the JSON properly
+        const lastQuote = jsonStr.lastIndexOf('"');
+        if (lastQuote > 0) {
+          jsonStr = jsonStr.slice(0, lastQuote + 1) + '}';
+        }
+      }
+
+      const parsed = JSON.parse(jsonStr);
       return {
         elementId: element.id,
         matched: parsed.matched === true,
         confidence: typeof parsed.confidence === 'number' ? parsed.confidence : (parsed.matched ? 0.8 : 0.2),
-        matchedText: parsed.matched_text || undefined,
+        matchedText: parsed.excerpt || parsed.matched_text || undefined,
       };
     } catch (error) {
       console.warn(`[Scorer] Semantic match failed for ${element.id}, falling back to contains:`, error);
