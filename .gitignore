@@ -2,7 +2,6 @@
 node_modules/
 web/node_modules/
 __pycache__/
-user/skills/**
 
 # Build output
 dist/
@@ -13,6 +12,7 @@ web/dist/
 .env.local
 
 # Database
+user/
 user/data/*.json
 
 # OS files
