@@ -1,6 +1,6 @@
 import { v4 as uuid } from 'uuid';
 import { getDb } from '../db/index.js';
-import type { Chunk, SearchResult, RAGQuery } from './types.js';
+import type { Chunk, ChunkMetadata, SearchResult, RAGQuery } from './types.js';
 
 /**
  * Vector Store - Stores and retrieves chunks with embeddings
@@ -69,7 +69,7 @@ export class VectorStore {
           source: row.source,
           chunkIndex: row.chunkIndex,
           content: row.content,
-          metadata: row.metadata,
+          metadata: row.metadata as ChunkMetadata,
           embedding: row.embedding,
         },
         score,
@@ -101,7 +101,7 @@ export class VectorStore {
       source: row.source,
       chunkIndex: row.chunkIndex,
       content: row.content,
-      metadata: row.metadata,
+      metadata: row.metadata as ChunkMetadata,
       embedding: row.embedding,
     }));
   }

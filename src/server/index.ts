@@ -215,7 +215,7 @@ export class OllieBotServer {
     this.app.get('/api/conversations/:id/messages', (req: Request, res: Response) => {
       try {
         const db = getDb();
-        const messages = db.messages.findByConversationId(req.params.id);
+        const messages = db.messages.findByConversationId(req.params.id as string);
         res.json(messages.map(m => ({
           id: m.id,
           role: m.role,
@@ -274,7 +274,7 @@ export class OllieBotServer {
     this.app.delete('/api/conversations/:id', (req: Request, res: Response) => {
       try {
         const db = getDb();
-        db.conversations.softDelete(req.params.id);
+        db.conversations.softDelete(req.params.id as string);
         res.json({ success: true });
       } catch (error) {
         console.error('[API] Failed to delete conversation:', error);
@@ -395,12 +395,15 @@ export class OllieBotServer {
           this.supervisor.setConversationId(conversationId);
         }
 
+        // Get description from jsonConfig
+        const taskDescription = (task.jsonConfig as { description?: string }).description || '';
+
         // Broadcast task_run event for compact UI display
         this.webChannel.broadcast({
           type: 'task_run',
           taskId: task.id,
           taskName: task.name,
-          taskDescription: task.description,
+          taskDescription,
           timestamp: now,
         });
 
@@ -416,7 +419,7 @@ export class OllieBotServer {
             type: 'task_run',
             taskId: task.id,
             taskName: task.name,
-            taskDescription: task.description,
+            taskDescription,
           },
         };
 

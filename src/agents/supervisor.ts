@@ -17,6 +17,7 @@ import type { LLMService } from '../llm/service.js';
 import type { LLMMessage, LLMToolUse } from '../llm/types.js';
 import { getDb } from '../db/index.js';
 import type { WebChannel } from '../channels/web.js';
+import type { ToolEvent } from '../tools/types.js';
 import { stripBinaryDataForLLM } from '../utils/index.js';
 
 // Directory for external sub-agent prompts (user can override defaults)
@@ -880,7 +881,7 @@ Every memory adds to context window consumption for ALL future calls.`,
   /**
    * Save tool events to database for persistence
    */
-  private saveToolEvent(event: { type: string; requestId: string; toolName: string; source: string; [key: string]: unknown }, channelId: string): void {
+  private saveToolEvent(event: ToolEvent, channelId: string): void {
     // Only save completed events (to avoid duplicates - requested + finished)
     if (event.type !== 'tool_execution_finished') {
       return;

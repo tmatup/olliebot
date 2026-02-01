@@ -39,7 +39,7 @@ export interface WebScrapeConfig {
 
 interface LLMServiceInterface {
   generate(
-    messages: Array<{ role: string; content: string }>,
+    messages: Array<{ role: 'user' | 'assistant' | 'system'; content: string }>,
     options?: { systemPrompt?: string; maxTokens?: number }
   ): Promise<{ content: string }>;
 }

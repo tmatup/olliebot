@@ -98,6 +98,9 @@ export interface SupervisorAgent extends BaseAgent {
   delegateTask(task: string, requirements?: string): Promise<TaskAssignment>;
   getTaskStatus(taskId: string): TaskAssignment | undefined;
 
+  // Channel management
+  registerChannel(channel: Channel): void;
+
   // Conversation management
   setConversationId(conversationId: string | null): void;
 }

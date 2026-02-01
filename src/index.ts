@@ -109,16 +109,16 @@ function parseMCPServers(configStr: string): MCPServerConfig[] {
 const CONFIG = {
   port: parseInt(process.env.PORT || '3000', 10),
   dbPath: process.env.DB_PATH || join(process.cwd(), 'user', 'data', 'olliebot.db'),
-  configDir: process.env.CONFIG_DIR || join(process.cwd(), 'user', 'tasks'),
-  skillsDir: process.env.SKILLS_DIR || join(process.cwd(), 'user', 'skills'),
-  userToolsDir: process.env.USER_TOOLS_DIR || join(process.cwd(), 'user', 'tools'),
+  tasksDir: join(process.cwd(), 'user', 'tasks'),
+  skillsDir: join(process.cwd(), 'user', 'skills'),
+  userToolsDir: join(process.cwd(), 'user', 'tools'),
 
   // LLM Configuration
   // Supported providers: 'anthropic', 'google', 'openai', 'azure_openai'
-  mainProvider: process.env.MAIN_PROVIDER || 'anthropic',
-  mainModel: process.env.MAIN_MODEL || 'claude-sonnet-4-20250514',
-  fastProvider: process.env.FAST_PROVIDER || 'google',
-  fastModel: process.env.FAST_MODEL || 'gemini-2.5-flash-lite',
+  mainProvider: process.env.MAIN_PROVIDER || 'openai',
+  mainModel: process.env.MAIN_MODEL || 'gpt-5.2',
+  fastProvider: process.env.FAST_PROVIDER || 'openai',
+  fastModel: process.env.FAST_MODEL || 'gpt-4.1-mini',
 
   // API Keys
   anthropicApiKey: process.env.ANTHROPIC_API_KEY || '',
@@ -131,7 +131,7 @@ const CONFIG = {
   azureOpenaiApiVersion: process.env.AZURE_OPENAI_API_VERSION || '2024-02-15-preview',
 
   // Embedding provider: 'google', 'openai', 'azure_openai'
-  embeddingProvider: process.env.EMBEDDING_PROVIDER || 'google',
+  embeddingProvider: process.env.EMBEDDING_PROVIDER || 'openai',
 
   // MCP Configuration (JSON string of server configs)
   mcpServers: process.env.MCP_SERVERS || '[]',
@@ -446,7 +446,7 @@ async function main(): Promise<void> {
   // Initialize Task Manager (watches user/tasks for .md task configs)
   console.log('[Init] Initializing task manager...');
   const taskManager = new TaskManager({
-    configDir: CONFIG.configDir,
+    tasksDir: CONFIG.tasksDir,
     llmService,
   });
   await taskManager.init();
@@ -496,7 +496,7 @@ async function main(): Promise<void> {
   📡 WebSocket:  ws://localhost:${CONFIG.port}
   📚 API:        http://localhost:${CONFIG.port}/api
 
-  📁 Config:     ${CONFIG.configDir}
+  📁 Config:     ${CONFIG.tasksDir}
   🗄️  Database:   ${CONFIG.dbPath}
   🧠 Main LLM:   ${CONFIG.mainProvider}/${CONFIG.mainModel}
   ⚡ Fast LLM:   ${CONFIG.fastProvider}/${CONFIG.fastModel}

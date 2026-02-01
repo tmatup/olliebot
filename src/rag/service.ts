@@ -119,8 +119,8 @@ export class RAGService {
   /**
    * Delete all data for a source
    */
-  async deleteSource(source: string): Promise<number> {
-    return this.store.deleteBySource(source);
+  async deleteSource(source: string): Promise<void> {
+    this.store.deleteBySource(source);
   }
 
   /**
@@ -160,7 +160,7 @@ export class GoogleEmbeddingProvider implements EmbeddingProvider {
       throw new Error(`Embedding API error: ${response.status}`);
     }
 
-    const data = await response.json();
+    const data = await response.json() as { embedding?: { values?: number[] } };
     return data.embedding?.values || [];
   }
 
@@ -218,7 +218,7 @@ export class OpenAIEmbeddingProvider implements EmbeddingProvider {
       throw new Error(`OpenAI embedding API error: ${response.status}`);
     }
 
-    const data = await response.json();
+    const data = await response.json() as { data?: Array<{ embedding: number[] }> };
     return data.data?.[0]?.embedding || [];
   }
 
@@ -239,8 +239,8 @@ export class OpenAIEmbeddingProvider implements EmbeddingProvider {
       throw new Error(`OpenAI embedding API error: ${response.status}`);
     }
 
-    const data = await response.json();
-    return data.data?.map((item: { embedding: number[] }) => item.embedding) || [];
+    const data = await response.json() as { data?: Array<{ embedding: number[] }> };
+    return data.data?.map((item) => item.embedding) || [];
   }
 
   getDimensions(): number {
@@ -284,8 +284,8 @@ export class VoyageEmbeddingProvider implements EmbeddingProvider {
       throw new Error(`Voyage API error: ${response.status}`);
     }
 
-    const data = await response.json();
-    return data.data.map((item: { embedding: number[] }) => item.embedding);
+    const data = await response.json() as { data: Array<{ embedding: number[] }> };
+    return data.data.map((item) => item.embedding);
   }
 
   getDimensions(): number {

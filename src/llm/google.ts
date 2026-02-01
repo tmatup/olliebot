@@ -52,7 +52,10 @@ export class GoogleProvider implements LLMProvider {
       throw new Error(`Gemini API error: ${response.status} ${error}`);
     }
 
-    const data = await response.json();
+    const data = await response.json() as {
+      candidates?: Array<{ content?: { parts?: Array<{ text?: string }> }; finishReason?: string }>;
+      usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number };
+    };
 
     // Extract response content
     const candidate = data.candidates?.[0];
@@ -98,7 +101,7 @@ export class GoogleProvider implements LLMProvider {
       throw new Error(`Gemini embedding API error: ${response.status} ${error}`);
     }
 
-    const data = await response.json();
+    const data = await response.json() as { embedding?: { values?: number[] } };
     return data.embedding?.values || [];
   }
 
@@ -108,9 +111,21 @@ export class GoogleProvider implements LLMProvider {
   ): Array<{ role: string; parts: Array<{ text: string }> }> {
     const contents: Array<{ role: string; parts: Array<{ text: string }> }> = [];
 
+    // Helper to extract text content from LLMMessage
+    const getTextContent = (content: LLMMessage['content']): string => {
+      if (typeof content === 'string') {
+        return content;
+      }
+      // For array of content blocks, concatenate text parts
+      return content
+        .filter((block) => block.type === 'text')
+        .map((block) => block.text)
+        .join('\n');
+    };
+
     // Handle system message
     const systemMessage = messages.find((m) => m.role === 'system');
-    const effectiveSystemPrompt = systemPrompt || systemMessage?.content;
+    const effectiveSystemPrompt = systemPrompt || (systemMessage ? getTextContent(systemMessage.content) : undefined);
 
     // Gemini uses system_instruction or prepends to first user message
     // For simplicity, prepend to first user message
@@ -122,7 +137,7 @@ export class GoogleProvider implements LLMProvider {
       }
 
       const role = msg.role === 'user' ? 'user' : 'model';
-      let text = msg.content;
+      let text = getTextContent(msg.content);
 
       // Prepend system prompt to first user message
       if (!systemPrepended && role === 'user' && effectiveSystemPrompt) {
