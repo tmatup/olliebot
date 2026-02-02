@@ -247,6 +247,321 @@ return {
 };
 ```
 
+### 3.2 The `ask` Decision: Human-in-the-Loop Flow
+
+When a hook returns `decision: 'ask'`, the system must:
+1. **Pause** the current operation
+2. **Prompt** the user for approval
+3. **Resume or abort** based on user response
+
+This requires **state checkpointing** and an **async resumption mechanism**.
+
+#### Flow Diagram
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                        ASK DECISION FLOW                                     │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+  User Request                Hook returns
+       │                      decision: 'ask'
+       ▼                           │
+┌──────────────┐                   ▼
+│ PreToolUse   │           ┌──────────────────┐
+│ Hook runs    │──────────▶│ HookManager      │
+└──────────────┘           │ detects 'ask'    │
+                           └────────┬─────────┘
+                                    │
+                    ┌───────────────┼───────────────┐
+                    ▼               ▼               ▼
+           ┌──────────────┐ ┌──────────────┐ ┌──────────────┐
+           │ 1. Checkpoint│ │ 2. Send      │ │ 3. Set       │
+           │    State     │ │    Prompt    │ │    Timeout   │
+           │              │ │    to User   │ │    Timer     │
+           │ Save to DB:  │ │              │ │              │
+           │ • hookEvent  │ │ WebSocket:   │ │ If timeout:  │
+           │ • toolName   │ │ {type:       │ │ use default  │
+           │ • toolInput  │ │  'approval', │ │ decision     │
+           │ • context    │ │  actions:    │ │              │
+           │ • hookResult │ │  [Yes, No]}  │ │              │
+           └──────────────┘ └──────────────┘ └──────────────┘
+                                    │
+                                    ▼
+                           ┌──────────────────┐
+                           │  WAITING STATE   │
+                           │  (async pause)   │
+                           └────────┬─────────┘
+                                    │
+                    ┌───────────────┴───────────────┐
+                    │                               │
+                    ▼                               ▼
+           ┌──────────────┐                ┌──────────────┐
+           │ User clicks  │                │ Timeout      │
+           │ "Approve"    │                │ reached      │
+           └──────┬───────┘                └──────┬───────┘
+                  │                               │
+                  ▼                               ▼
+           ┌──────────────┐                ┌──────────────┐
+           │ 4. Restore   │                │ Use default  │
+           │    State     │                │ decision     │
+           │              │                │ (block/allow)│
+           │ Load from DB │                └──────┬───────┘
+           └──────┬───────┘                       │
+                  │                               │
+                  ▼                               ▼
+           ┌──────────────┐                ┌──────────────┐
+           │ 5. Resume    │                │ Execute      │
+           │    Operation │                │ default      │
+           │              │                │ action       │
+           │ Continue tool│                └──────────────┘
+           │ execution    │
+           └──────────────┘
+```
+
+#### Implementation Components
+
+**1. PendingApproval Storage**
+
+```typescript
+interface PendingApproval {
+  id: string;                    // Unique approval request ID
+  createdAt: Date;
+  expiresAt: Date;               // When timeout triggers
+
+  // Checkpoint data
+  hookEvent: string;             // e.g., 'PreToolUse'
+  operationType: string;         // e.g., 'tool_execution'
+  operationData: {
+    toolName?: string;
+    toolInput?: Record<string, any>;
+    toolUseId?: string;
+    llmMessages?: LLMMessage[];
+    // ... other operation-specific data
+  };
+
+  // Context for resumption
+  sessionId: string;
+  conversationId: string;
+  userId: string;
+  agentId: string;
+
+  // Hook result that triggered this
+  hookResult: HookResult;
+
+  // Resolution
+  status: 'pending' | 'approved' | 'denied' | 'timeout';
+  resolvedAt?: Date;
+  resolvedBy?: string;           // User ID or 'timeout'
+}
+```
+
+**2. HookManager.execute() with Ask Handling**
+
+```typescript
+class HookManager {
+  async execute(event: string, input: any, context: HookContext): Promise<HookExecutionResult> {
+    const hooks = this.getMatchingHooks(event, input);
+
+    for (const hook of hooks) {
+      const result = await this.runHook(hook, input, context);
+
+      if (result.decision === 'block') {
+        return { blocked: true, reason: result.reason };
+      }
+
+      if (result.decision === 'ask') {
+        // Create pending approval
+        const approvalId = await this.createPendingApproval({
+          hookEvent: event,
+          operationType: this.getOperationType(event),
+          operationData: input,
+          context,
+          hookResult: result
+        });
+
+        // Send approval request to user
+        await this.sendApprovalRequest(approvalId, result, context);
+
+        // Return "waiting" status - caller must handle this
+        return {
+          waiting: true,
+          approvalId,
+          message: result.reason || 'Waiting for approval'
+        };
+      }
+
+      // Apply modifications for 'allow'
+      if (result.updatedInput) {
+        input = { ...input, ...result.updatedInput };
+      }
+    }
+
+    return { allowed: true, finalInput: input };
+  }
+
+  private async sendApprovalRequest(approvalId: string, result: HookResult, context: HookContext) {
+    const channel = this.getChannel(context.sessionId);
+
+    // Send interactive message with action buttons
+    channel.send({
+      type: 'approval_request',
+      id: approvalId,
+      content: result.reason || 'This action requires your approval',
+      details: result.escalation?.message,
+      priority: result.escalation?.priority || 'medium',
+      actions: [
+        { id: 'approve', label: 'Approve', style: 'primary' },
+        { id: 'deny', label: 'Deny', style: 'danger' }
+      ],
+      expiresIn: result.escalation?.timeout || 300000,  // 5 min default
+      metadata: {
+        approvalId,
+        defaultDecision: result.escalation?.defaultDecision || 'block'
+      }
+    });
+  }
+}
+```
+
+**3. Action Handler for User Response**
+
+```typescript
+// In supervisor.ts or channel handler
+channel.onAction(async (action: string, data: { approvalId: string }) => {
+  if (action === 'approve' || action === 'deny') {
+    const approval = await hookManager.resolvePendingApproval(
+      data.approvalId,
+      action === 'approve' ? 'approved' : 'denied',
+      context.userId
+    );
+
+    if (approval.status === 'approved') {
+      // Resume the original operation
+      await this.resumeOperation(approval);
+    } else {
+      // Notify user operation was denied
+      channel.send({
+        type: 'message',
+        content: `Operation was ${approval.status === 'denied' ? 'denied' : 'cancelled due to timeout'}.`
+      });
+    }
+  }
+});
+```
+
+**4. Resume Operation**
+
+```typescript
+class Supervisor {
+  async resumeOperation(approval: PendingApproval) {
+    const { hookEvent, operationData, context } = approval;
+
+    switch (approval.operationType) {
+      case 'tool_execution':
+        // Resume tool execution, skipping the hook that asked
+        const result = await this.toolRunner.executeTools(
+          [operationData],
+          { skipHooks: [approval.hookResult.hookId] }  // Don't re-trigger same hook
+        );
+
+        // Continue the agent loop with tool result
+        await this.continueWithToolResult(result, approval.conversationId);
+        break;
+
+      case 'llm_request':
+        // Resume LLM call
+        const response = await this.llmService.generateWithToolsStream(
+          operationData.llmMessages,
+          this.getStreamCallbacks(approval.conversationId),
+          { skipHooks: [approval.hookResult.hookId] }
+        );
+        break;
+
+      // ... other operation types
+    }
+  }
+}
+```
+
+**5. Timeout Handler**
+
+```typescript
+class HookManager {
+  constructor() {
+    // Check for expired approvals periodically
+    setInterval(() => this.processExpiredApprovals(), 10000);
+  }
+
+  private async processExpiredApprovals() {
+    const expired = await this.db.pendingApprovals.findExpired();
+
+    for (const approval of expired) {
+      const defaultDecision = approval.hookResult.escalation?.defaultDecision || 'block';
+
+      await this.resolvePendingApproval(
+        approval.id,
+        defaultDecision === 'allow' ? 'approved' : 'denied',
+        'timeout'
+      );
+
+      if (defaultDecision === 'allow') {
+        await this.supervisor.resumeOperation(approval);
+      } else {
+        // Notify user
+        const channel = this.getChannel(approval.sessionId);
+        channel.send({
+          type: 'message',
+          content: `Operation timed out and was automatically ${defaultDecision}ed.`
+        });
+      }
+    }
+  }
+}
+```
+
+#### User Experience
+
+**What the user sees:**
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  🔔 Approval Required                                        │
+│                                                              │
+│  The agent wants to execute a potentially sensitive          │
+│  operation:                                                  │
+│                                                              │
+│  Tool: Bash                                                  │
+│  Command: rm -rf ./old-backups/                              │
+│                                                              │
+│  This will permanently delete the old-backups directory.     │
+│                                                              │
+│  ┌──────────┐  ┌──────────┐                                  │
+│  │ Approve  │  │  Deny    │     ⏱️ Expires in 4:32           │
+│  └──────────┘  └──────────┘                                  │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**After approval:**
+```
+┌─────────────────────────────────────────────────────────────┐
+│  ✅ Operation approved by you                                │
+│                                                              │
+│  Continuing with: rm -rf ./old-backups/                      │
+│  ...                                                         │
+│  Done! Removed 247 files.                                    │
+└─────────────────────────────────────────────────────────────┘
+```
+
+#### Key Design Decisions
+
+| Question | Decision | Rationale |
+|----------|----------|-----------|
+| Where to store pending approvals? | Database (SQLite) | Survives server restart |
+| What if user closes browser? | Approval persists, can respond later | Better UX |
+| What if multiple hooks return `ask`? | First one wins, others queued | Simpler flow |
+| Can user modify the operation? | Future enhancement | Start with approve/deny |
+| Notification channels? | WebSocket + optional email/Slack | Immediate + async |
+
 ---
 
 ## Part 4: Hook Definition Methods
