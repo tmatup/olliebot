@@ -102,9 +102,16 @@ const CodeBlock = memo(function CodeBlock({ language, children }) {
 
 /**
  * Memoized message content component to prevent re-renders when parent state changes.
- * Only re-renders when content, html, or isStreaming props change.
+ * Only re-renders when content, html, isStreaming, or reply-related props change.
  */
-const MessageContent = memo(function MessageContent({ content, html = false, isStreaming = false }) {
+const MessageContent = memo(function MessageContent({
+  content,
+  html = false,
+  isStreaming = false,
+  messageId = null,
+  onReplyRequest = null,
+  replies = []
+}) {
   // Memoize the components object to prevent ReactMarkdown re-renders
   const components = useMemo(() => ({
     // Custom rendering for pre (code blocks)
@@ -120,6 +127,19 @@ const MessageContent = memo(function MessageContent({ content, html = false, isS
 
       if (isBlock) {
         const codeContent = String(children).replace(/\n$/, '');
+
+        // Check if this is an interactive applet - render with AppletPreview
+        if (language === 'applet' || language === 'interactive') {
+          return (
+            <AppletPreview
+              code={codeContent}
+              isStreaming={isStreaming}
+              messageId={messageId}
+              onReplyRequest={onReplyRequest}
+              replies={replies}
+            />
+          );
+        }
 
         // Check if this is HTML content - render with HtmlPreview
         if (language === 'html' || language === 'htm') {
@@ -144,7 +164,7 @@ const MessageContent = memo(function MessageContent({ content, html = false, isS
         </div>
       );
     },
-  }), [isStreaming]);
+  }), [isStreaming, messageId, onReplyRequest, replies]);
 
   // Memoize rehype plugins array
   const rehypePlugins = useMemo(
@@ -1261,70 +1281,6 @@ function App() {
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   };
 
-  // Render markdown with inline HTML support
-  const renderContent = (content, html = false, isStreaming = false, messageId = null, onReplyRequest = null, replies = []) => {
-    return (
-      <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
-        rehypePlugins={html ? [rehypeRaw, rehypeSanitize] : [rehypeSanitize]}
-        components={{
-          // Custom rendering for pre (code blocks)
-          pre({ children }) {
-            return <div className="code-block-wrapper">{children}</div>;
-          },
-          // Custom rendering for code with syntax highlighting
-          code({ node, className, children, ...props }) {
-            const match = /language-(\w+)/.exec(className || '');
-            const language = match ? match[1] : null;
-            // If inside a pre tag (code block), render as block
-            const isBlock = match || (node?.tagName === 'code' && node?.parent?.tagName === 'pre');
-
-            if (isBlock) {
-              const codeContent = String(children).replace(/\n$/, '');
-
-              // Check if this is an interactive applet - render with AppletPreview
-              if (language === 'applet' || language === 'interactive') {
-                return (
-                  <AppletPreview
-                    code={codeContent}
-                    isStreaming={isStreaming}
-                    messageId={messageId}
-                    onReplyRequest={onReplyRequest}
-                    replies={replies}
-                  />
-                );
-              }
-
-              // Check if this is HTML content - render with HtmlPreview
-              if (language === 'html' || language === 'htm') {
-                return <HtmlPreview html={codeContent} isStreaming={isStreaming} />;
-              }
-
-              // Use CodeBlock component with copy button
-              return <CodeBlock language={language}>{codeContent}</CodeBlock>;
-            }
-            // Inline code
-            return (
-              <code className="inline-code" {...props}>
-                {children}
-              </code>
-            );
-          },
-          // Custom table rendering
-          table({ children }) {
-            return (
-              <div className="table-wrapper">
-                <table>{children}</table>
-              </div>
-            );
-          },
-        }}
-      >
-        {content}
-      </ReactMarkdown>
-    );
-  };
-
   // Toggle accordion
   const toggleAccordion = useCallback((key) => {
     setExpandedAccordions((prev) => ({
@@ -1969,7 +1925,14 @@ function App() {
                 {msg.agentName && msg.role === 'assistant' && (
                   <div className="agent-name">{msg.agentName}</div>
                 )}
-                {renderContent(msg.content, msg.html, msg.isStreaming, msg.id, handleMessageReply, messageReplies[msg.id] || [])}
+                <MessageContent
+                  content={msg.content}
+                  html={msg.html}
+                  isStreaming={msg.isStreaming}
+                  messageId={msg.id}
+                  onReplyRequest={handleMessageReply}
+                  replies={messageReplies[msg.id] || []}
+                />
                 {msg.attachments && msg.attachments.length > 0 && (
                   <div className="message-attachments">
                     {msg.attachments.map((att, index) => (
