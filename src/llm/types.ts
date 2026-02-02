@@ -2,7 +2,7 @@
 
 // Content block for multimodal messages
 export interface LLMContentBlock {
-  type: 'text' | 'image';
+  type: 'text' | 'image' | 'tool_result';
   text?: string;
   // For image content
   source?: {
@@ -10,6 +10,10 @@ export interface LLMContentBlock {
     media_type: string;
     data: string;
   };
+  // For tool_result content
+  tool_use_id?: string;
+  content?: string;
+  is_error?: boolean;
 }
 
 export interface LLMMessage {

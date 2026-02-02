@@ -279,18 +279,27 @@ export class SupervisorAgentImpl extends AbstractAgent implements ISupervisorAge
               toolUse: response.toolUse,
             });
 
-            // Add tool results as user messages
-            for (const result of results) {
-              llmMessages.push({
-                role: 'user',
-                content: JSON.stringify({
-                  type: 'tool_result',
-                  tool_use_id: result.requestId,
-                  content: result.success ? stripBinaryDataForLLM(result.output) : `Error: ${result.error}`,
-                  is_error: !result.success,
-                }),
-              });
-            }
+            // Add tool results as user message with content blocks (required by Anthropic)
+            // Note: tool_result.content MUST be a string, not an object
+            const toolResultBlocks = results.map((result) => {
+              let content: string;
+              if (result.success) {
+                const stripped = stripBinaryDataForLLM(result.output);
+                content = typeof stripped === 'string' ? stripped : JSON.stringify(stripped);
+              } else {
+                content = `Error: ${result.error}`;
+              }
+              return {
+                type: 'tool_result' as const,
+                tool_use_id: result.requestId,
+                content,
+                is_error: !result.success,
+              };
+            });
+            llmMessages.push({
+              role: 'user',
+              content: toolResultBlocks,
+            });
 
             // Continue loop to let LLM process tool results
           } else {
@@ -356,7 +365,21 @@ export class SupervisorAgentImpl extends AbstractAgent implements ISupervisorAge
       }
     } catch (error) {
       channel.endStream!(streamId, this.currentConversationId || undefined);
-      await this.sendError(channel, 'Streaming error', error instanceof Error ? error.message : String(error));
+      // Extract full error details including API error bodies
+      let errorDetails = '';
+      if (error instanceof Error) {
+        errorDetails = error.message;
+        // Check for API error response body (Anthropic SDK includes it)
+        const apiError = error as Error & { status?: number; error?: { type?: string; message?: string } };
+        if (apiError.status) {
+          errorDetails = `${apiError.status} ${JSON.stringify(apiError.error || error.message)}`;
+        }
+        // Also log the full error for debugging
+        console.error('[Supervisor] Full streaming error:', JSON.stringify(error, Object.getOwnPropertyNames(error), 2));
+      } else {
+        errorDetails = String(error);
+      }
+      await this.sendError(channel, 'Streaming error', errorDetails);
     } finally {
       // Cleanup tool event subscription
       if (unsubscribeTool) {

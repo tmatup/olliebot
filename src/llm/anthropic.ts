@@ -147,16 +147,33 @@ export class AnthropicProvider implements LLMProvider {
       }
     }
 
-    const stream = await this.client.messages.stream({
+    // Log the request for debugging
+    console.log('[Anthropic] streamWithTools request:', {
       model: this.model,
-      max_tokens: options?.maxTokens ?? 4096,
-      system: options?.systemPrompt ?? systemContent,
-      messages: conversationMessages,
-      temperature: options?.temperature,
-      stop_sequences: options?.stopSequences,
-      tools,
-      tool_choice: tools?.length ? toolChoice || { type: 'auto' } : undefined,
+      messageCount: conversationMessages.length,
+      toolCount: tools?.length || 0,
+      lastMessageRole: conversationMessages[conversationMessages.length - 1]?.role,
+      lastMessageContentType: Array.isArray(conversationMessages[conversationMessages.length - 1]?.content)
+        ? conversationMessages[conversationMessages.length - 1]?.content.map((c: { type: string }) => c.type)
+        : 'string',
     });
+
+    let stream;
+    try {
+      stream = await this.client.messages.stream({
+        model: this.model,
+        max_tokens: options?.maxTokens ?? 4096,
+        system: options?.systemPrompt ?? systemContent,
+        messages: conversationMessages,
+        temperature: options?.temperature,
+        stop_sequences: options?.stopSequences,
+        tools,
+        tool_choice: tools?.length ? toolChoice || { type: 'auto' } : undefined,
+      });
+    } catch (error) {
+      console.error('[Anthropic] Stream creation failed:', error);
+      throw error;
+    }
 
     let fullContent = '';
     let inputTokens = 0;
@@ -165,6 +182,7 @@ export class AnthropicProvider implements LLMProvider {
     let currentToolUse: { id: string; name: string; inputJson: string } | null = null;
     let stopReason: LLMResponseWithTools['stopReason'] = 'end_turn';
 
+    try {
     for await (const event of stream) {
       if (event.type === 'message_start' && event.message?.usage) {
         inputTokens = event.message.usage.input_tokens;
@@ -203,6 +221,10 @@ export class AnthropicProvider implements LLMProvider {
         }
       }
     }
+    } catch (error) {
+      console.error('[Anthropic] Stream processing failed:', error);
+      throw error;
+    }
 
     // Notify about tool use if any
     if (toolUseBlocks.length > 0 && callbacks.onToolUse) {
@@ -237,7 +259,7 @@ export class AnthropicProvider implements LLMProvider {
             if (typeof m.content === 'string') {
               contentBlocks.push({ type: 'text', text: m.content });
             } else {
-              // Already an array of content blocks (multimodal)
+              // Already an array of content blocks (multimodal or tool_result)
               contentBlocks = m.content.map((block): ContentBlockParam => {
                 if (block.type === 'text') {
                   return { type: 'text', text: block.text || '' };
@@ -249,6 +271,13 @@ export class AnthropicProvider implements LLMProvider {
                       media_type: block.source.media_type as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp',
                       data: block.source.data,
                     },
+                  };
+                } else if (block.type === 'tool_result' && block.tool_use_id) {
+                  return {
+                    type: 'tool_result',
+                    tool_use_id: block.tool_use_id,
+                    content: String(block.content || ''),
+                    is_error: block.is_error,
                   };
                 }
                 return { type: 'text', text: '' };

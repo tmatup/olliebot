@@ -233,18 +233,27 @@ export class WorkerAgent extends AbstractAgent {
             toolUse: response.toolUse,
           });
 
-          // Add tool results as user messages
-          for (const result of results) {
-            llmMessages.push({
-              role: 'user',
-              content: JSON.stringify({
-                type: 'tool_result',
-                tool_use_id: result.requestId,
-                content: result.success ? stripBinaryDataForLLM(result.output) : `Error: ${result.error}`,
-                is_error: !result.success,
-              }),
-            });
-          }
+          // Add tool results as user message with content blocks (required by Anthropic)
+          // Note: tool_result.content MUST be a string, not an object
+          const toolResultBlocks = results.map((result) => {
+            let content: string;
+            if (result.success) {
+              const stripped = stripBinaryDataForLLM(result.output);
+              content = typeof stripped === 'string' ? stripped : JSON.stringify(stripped);
+            } else {
+              content = `Error: ${result.error}`;
+            }
+            return {
+              type: 'tool_result' as const,
+              tool_use_id: result.requestId,
+              content,
+              is_error: !result.success,
+            };
+          });
+          llmMessages.push({
+            role: 'user',
+            content: toolResultBlocks,
+          });
         } else {
           continueLoop = false;
         }
