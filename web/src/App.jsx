@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, memo, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import rehypeRaw from 'rehype-raw';
 import rehypeSanitize from 'rehype-sanitize';
@@ -18,7 +18,8 @@ import { BrowserSessions } from './components/BrowserSessions';
 import { BrowserPreview } from './components/BrowserPreview';
 
 // Code block component with copy button and language header
-function CodeBlock({ language, children }) {
+// Memoized to prevent unnecessary re-renders
+const CodeBlock = memo(function CodeBlock({ language, children }) {
   const [copied, setCopied] = useState(false);
   const hasLanguage = language && language !== 'text';
 
@@ -61,7 +62,70 @@ function CodeBlock({ language, children }) {
       </SyntaxHighlighter>
     </div>
   );
-}
+});
+
+/**
+ * Memoized message content component to prevent re-renders when parent state changes.
+ * Only re-renders when content, html, or isStreaming props change.
+ */
+const MessageContent = memo(function MessageContent({ content, html = false, isStreaming = false }) {
+  // Memoize the components object to prevent ReactMarkdown re-renders
+  const components = useMemo(() => ({
+    // Custom rendering for pre (code blocks)
+    pre({ children }) {
+      return <div className="code-block-wrapper">{children}</div>;
+    },
+    // Custom rendering for code with syntax highlighting
+    code({ node, className, children, ...props }) {
+      const match = /language-(\w+)/.exec(className || '');
+      const language = match ? match[1] : null;
+      // If inside a pre tag (code block), render as block
+      const isBlock = match || (node?.tagName === 'code' && node?.parent?.tagName === 'pre');
+
+      if (isBlock) {
+        const codeContent = String(children).replace(/\n$/, '');
+
+        // Check if this is HTML content - render with HtmlPreview
+        if (language === 'html' || language === 'htm') {
+          return <HtmlPreview html={codeContent} isStreaming={isStreaming} />;
+        }
+
+        // Use CodeBlock component with copy button
+        return <CodeBlock language={language}>{codeContent}</CodeBlock>;
+      }
+      // Inline code
+      return (
+        <code className="inline-code" {...props}>
+          {children}
+        </code>
+      );
+    },
+    // Custom table rendering
+    table({ children }) {
+      return (
+        <div className="table-wrapper">
+          <table>{children}</table>
+        </div>
+      );
+    },
+  }), [isStreaming]);
+
+  // Memoize rehype plugins array
+  const rehypePlugins = useMemo(
+    () => html ? [rehypeRaw, rehypeSanitize] : [rehypeSanitize],
+    [html]
+  );
+
+  return (
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm]}
+      rehypePlugins={rehypePlugins}
+      components={components}
+    >
+      {content}
+    </ReactMarkdown>
+  );
+});
 
 function App() {
   const [messages, setMessages] = useState([]);
@@ -1123,57 +1187,6 @@ function App() {
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   };
 
-  // Render markdown with inline HTML support
-  const renderContent = (content, html = false, isStreaming = false) => {
-    return (
-      <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
-        rehypePlugins={html ? [rehypeRaw, rehypeSanitize] : [rehypeSanitize]}
-        components={{
-          // Custom rendering for pre (code blocks)
-          pre({ children }) {
-            return <div className="code-block-wrapper">{children}</div>;
-          },
-          // Custom rendering for code with syntax highlighting
-          code({ node, className, children, ...props }) {
-            const match = /language-(\w+)/.exec(className || '');
-            const language = match ? match[1] : null;
-            // If inside a pre tag (code block), render as block
-            const isBlock = match || (node?.tagName === 'code' && node?.parent?.tagName === 'pre');
-
-            if (isBlock) {
-              const codeContent = String(children).replace(/\n$/, '');
-
-              // Check if this is HTML content - render with HtmlPreview
-              if (language === 'html' || language === 'htm') {
-                return <HtmlPreview html={codeContent} isStreaming={isStreaming} />;
-              }
-
-              // Use CodeBlock component with copy button
-              return <CodeBlock language={language}>{codeContent}</CodeBlock>;
-            }
-            // Inline code
-            return (
-              <code className="inline-code" {...props}>
-                {children}
-              </code>
-            );
-          },
-          // Custom table rendering
-          table({ children }) {
-            return (
-              <div className="table-wrapper">
-                <table>{children}</table>
-              </div>
-            );
-          },
-        }}
-      >
-        {content}
-      </ReactMarkdown>
-    );
-  };
-
   // Toggle accordion
   const toggleAccordion = useCallback((key) => {
     setExpandedAccordions((prev) => ({
@@ -1248,6 +1261,11 @@ function App() {
     // Send close request to server
     sendMessage({ type: 'browser-action', action: 'close', sessionId });
   }, [sendMessage, selectedBrowserSessionId]);
+
+  // Toggle browser sessions accordion - memoized to prevent BrowserSessions re-render
+  const handleToggleBrowserSessions = useCallback(() => {
+    toggleAccordion('browserSessions');
+  }, [toggleAccordion]);
 
   // Get selected browser session object
   const selectedBrowserSession = browserSessions.find(
@@ -1635,7 +1653,7 @@ function App() {
               onSelectSession={handleSelectBrowserSession}
               onCloseSession={handleCloseBrowserSession}
               expanded={expandedAccordions.browserSessions}
-              onToggle={() => toggleAccordion('browserSessions')}
+              onToggle={handleToggleBrowserSessions}
             />
           </div>
           </>
@@ -1789,7 +1807,7 @@ function App() {
                 {msg.agentName && msg.role === 'assistant' && (
                   <div className="agent-name">{msg.agentName}</div>
                 )}
-                {renderContent(msg.content, msg.html, msg.isStreaming)}
+                <MessageContent content={msg.content} html={msg.html} isStreaming={msg.isStreaming} />
                 {msg.attachments && msg.attachments.length > 0 && (
                   <div className="message-attachments">
                     {msg.attachments.map((att, index) => (
