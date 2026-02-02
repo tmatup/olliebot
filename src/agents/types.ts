@@ -105,4 +105,7 @@ export interface SupervisorAgent extends BaseAgent {
   setConversationId(conversationId: string | null): void;
   getCurrentConversationId(): string | null;
   startNewConversation(): void;
+
+  // Message interaction
+  handleMessageReply(messageId: string, content: string, conversationId?: string): Promise<void>;
 }

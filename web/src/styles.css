@@ -1548,8 +1548,50 @@ html, body {
   box-sizing: border-box;
 }
 
-/* Applet Revision Input Bar */
-.applet-revision-bar {
+/* Applet Replies Section */
+.applet-replies {
+  padding: 0.5rem;
+  background: rgba(0, 0, 0, 0.15);
+  border-top: 1px solid var(--border-color);
+  max-height: 150px;
+  overflow-y: auto;
+}
+
+.applet-reply {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  padding: 0.375rem 0.5rem;
+  border-radius: 0.25rem;
+  margin-bottom: 0.25rem;
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+
+.applet-reply:last-child {
+  margin-bottom: 0;
+}
+
+.applet-reply-user {
+  background: rgba(76, 175, 80, 0.1);
+}
+
+.applet-reply-assistant {
+  background: rgba(0, 0, 0, 0.1);
+}
+
+.applet-reply-icon {
+  font-size: 0.75rem;
+  flex-shrink: 0;
+}
+
+.applet-reply-content {
+  color: var(--text-secondary);
+  word-break: break-word;
+}
+
+/* Applet Reply Input Bar */
+.applet-reply-bar {
   display: flex;
   gap: 0.5rem;
   padding: 0.5rem;
@@ -1557,7 +1599,7 @@ html, body {
   border-top: 1px solid var(--border-color);
 }
 
-.applet-revision-input {
+.applet-reply-input {
   flex: 1;
   padding: 0.5rem 0.75rem;
   font-size: 0.85rem;
@@ -1569,21 +1611,21 @@ html, body {
   transition: border-color 0.2s ease;
 }
 
-.applet-revision-input:focus {
+.applet-reply-input:focus {
   border-color: #4caf50;
 }
 
-.applet-revision-input::placeholder {
+.applet-reply-input::placeholder {
   color: var(--text-secondary);
   opacity: 0.7;
 }
 
-.applet-revision-input:disabled {
+.applet-reply-input:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
 
-.applet-revision-submit {
+.applet-reply-submit {
   padding: 0.5rem 1rem;
   font-size: 0.85rem;
   font-weight: 500;
@@ -1596,19 +1638,23 @@ html, body {
   white-space: nowrap;
 }
 
-.applet-revision-submit:hover:not(:disabled) {
+.applet-reply-submit:hover:not(:disabled) {
   background: #45a049;
 }
 
-.applet-revision-submit:disabled {
+.applet-reply-submit:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
 
-.applet-modal .applet-revision-bar {
+.applet-modal .applet-reply-bar {
   flex-shrink: 0;
   border-top: 1px solid var(--border-color);
   border-radius: 0 0 0.5rem 0.5rem;
+}
+
+.applet-modal .applet-replies {
+  flex-shrink: 0;
 }
 
 /* Action Buttons */

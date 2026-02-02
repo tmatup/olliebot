@@ -903,17 +903,17 @@ export class SupervisorAgentImpl extends AbstractAgent implements ISupervisorAge
   }
 
   /**
-   * Handle applet revision request from user
-   * This takes the original message with applet code and user's revision instructions,
-   * then generates updated applet code and sends it as a message update.
+   * Handle message reply request from user
+   * This takes the original message (e.g., with applet code) and user's reply/revision instructions,
+   * then generates updated content and sends it as a message update.
    */
-  async handleAppletRevision(messageId: string, instructions: string, conversationId?: string): Promise<void> {
+  async handleMessageReply(messageId: string, replyContent: string, conversationId?: string): Promise<void> {
     try {
       const db = getDb();
       const message = db.messages.findById(messageId);
 
       if (!message) {
-        console.error(`[${this.identity.name}] Message not found for applet revision: ${messageId}`);
+        console.error(`[${this.identity.name}] Message not found for reply: ${messageId}`);
         return;
       }
 
@@ -925,6 +925,17 @@ export class SupervisorAgentImpl extends AbstractAgent implements ISupervisorAge
       }
 
       const currentAppletCode = appletMatch[1];
+
+      // Save the user's reply to the database
+      const userReply = {
+        id: `reply-${messageId}-${Date.now()}`,
+        messageId,
+        role: 'user' as const,
+        content: replyContent,
+        metadata: {},
+        createdAt: new Date().toISOString(),
+      };
+      db.messageReplies.create(userReply);
 
       // Use LLM to generate revised applet code
       const response = await this.llmService.quickGenerate(
@@ -945,7 +956,7 @@ The applet will run in an iframe with sandbox="allow-scripts".`,
 ${currentAppletCode}
 \`\`\`
 
-User's revision instructions: ${instructions}
+User's revision instructions: ${replyContent}
 
 Please provide the complete revised applet code:`,
           },
@@ -953,19 +964,13 @@ Please provide the complete revised applet code:`,
         { maxTokens: 4096 }
       );
 
-      if (!response || !response.content || response.content.length === 0) {
+      if (!response || !response.content) {
         console.error(`[${this.identity.name}] Failed to generate revised applet`);
         return;
       }
 
-      // Extract the revised code from response
-      let revisedCode = '';
-      for (const block of response.content) {
-        if (block.type === 'text') {
-          revisedCode = block.text;
-          break;
-        }
-      }
+      // The response.content is a string from quickGenerate
+      let revisedCode = response.content;
 
       // Clean up the code (remove any markdown fences if LLM included them)
       revisedCode = revisedCode.replace(/^```(?:html|applet|interactive)?\n?/, '').replace(/\n?```$/, '');
@@ -976,14 +981,42 @@ Please provide the complete revised applet code:`,
         `\`\`\`applet\n${revisedCode}\n\`\`\``
       );
 
+      // Save the assistant's revision as a reply
+      const assistantReply = {
+        id: `reply-${messageId}-${Date.now() + 1}`,
+        messageId,
+        role: 'assistant' as const,
+        content: `Revised applet based on: "${replyContent}"`,
+        metadata: { revisedCode },
+        createdAt: new Date().toISOString(),
+      };
+      db.messageReplies.create(assistantReply);
+
       // Get the web channel and send the update
-      const webChannel = this.getChannel('web-default') as WebChannel | undefined;
+      const webChannel = this.channels.get('web-default') as WebChannel | undefined;
       if (webChannel) {
         webChannel.updateMessage(messageId, { content: newContent }, conversationId);
-        console.log(`[${this.identity.name}] Sent applet revision for message ${messageId}`);
+
+        // Broadcast the new reply for UI update
+        webChannel.broadcast({
+          type: 'message-reply-added',
+          messageId,
+          reply: userReply,
+          conversationId,
+          timestamp: new Date().toISOString(),
+        });
+        webChannel.broadcast({
+          type: 'message-reply-added',
+          messageId,
+          reply: assistantReply,
+          conversationId,
+          timestamp: new Date().toISOString(),
+        });
+
+        console.log(`[${this.identity.name}] Processed message reply for ${messageId}`);
       }
     } catch (error) {
-      console.error(`[${this.identity.name}] Failed to handle applet revision:`, error);
+      console.error(`[${this.identity.name}] Failed to handle message reply:`, error);
     }
   }
 }

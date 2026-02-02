@@ -15,30 +15,31 @@ const HEIGHT_STEP = 100;
  * - sandbox="allow-scripts" enables JS but prevents access to parent context
  * - Uses srcdoc for better security than document.write()
  * - Supports keyboard input for interactive applets (games, etc.)
- * - Includes inline revision input for requesting changes to the applet
+ * - Includes inline reply input for requesting changes to the applet
  *
  * Supported code block languages: applet, interactive
  *
  * @param {string} code - The HTML/JS code to render
  * @param {boolean} isStreaming - Whether the content is still streaming
  * @param {string} className - Additional CSS classes
- * @param {string} messageId - The ID of the message containing this applet (for revisions)
- * @param {function} onRevisionRequest - Callback when user requests a revision
+ * @param {string} messageId - The ID of the message containing this applet (for replies)
+ * @param {function} onReplyRequest - Callback when user sends a reply
+ * @param {Array} replies - Array of replies associated with this message
  */
-function AppletPreview({ code, className = '', isStreaming = false, messageId, onRevisionRequest }) {
+function AppletPreview({ code, className = '', isStreaming = false, messageId, onReplyRequest, replies = [] }) {
   const [viewMode, setViewMode] = useState(isStreaming ? 'code' : 'run');
   const [height, setHeight] = useState(DEFAULT_HEIGHT);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isRunning, setIsRunning] = useState(!isStreaming);
   const [key, setKey] = useState(0); // Used to force iframe remount for restart
-  const [revisionInput, setRevisionInput] = useState('');
-  const [isRevising, setIsRevising] = useState(false);
+  const [replyInput, setReplyInput] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const prevStreamingRef = useRef(isStreaming);
   const codeRef = useRef(null);
   const iframeRef = useRef(null);
   const modalIframeRef = useRef(null);
   const modalCodeRef = useRef(null);
-  const revisionInputRef = useRef(null);
+  const replyInputRef = useRef(null);
 
   const increaseHeight = () => setHeight((h) => h + HEIGHT_STEP);
   const decreaseHeight = () => setHeight((h) => Math.max(MIN_HEIGHT, h - HEIGHT_STEP));
@@ -127,24 +128,24 @@ ${code}
     setViewMode('code');
   };
 
-  // Handle revision request submission
-  const handleRevisionSubmit = (e) => {
+  // Handle reply submission
+  const handleReplySubmit = (e) => {
     e.preventDefault();
-    if (!revisionInput.trim() || !onRevisionRequest || !messageId) return;
+    if (!replyInput.trim() || !onReplyRequest || !messageId) return;
 
-    setIsRevising(true);
-    onRevisionRequest(messageId, revisionInput.trim());
-    setRevisionInput('');
+    setIsSubmitting(true);
+    onReplyRequest(messageId, replyInput.trim());
+    setReplyInput('');
 
-    // Reset revising state after a delay (actual update will come via WebSocket)
-    setTimeout(() => setIsRevising(false), 2000);
+    // Reset submitting state after a delay (actual update will come via WebSocket)
+    setTimeout(() => setIsSubmitting(false), 2000);
   };
 
-  // Handle Enter key in revision input (Shift+Enter for newline)
-  const handleRevisionKeyDown = (e) => {
+  // Handle Enter key in reply input (Shift+Enter for newline)
+  const handleReplyKeyDown = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      handleRevisionSubmit(e);
+      handleReplySubmit(e);
     }
   };
 
@@ -193,29 +194,45 @@ ${code}
     />
   );
 
-  // Render the revision input bar
-  const renderRevisionInput = () => {
-    if (!messageId || !onRevisionRequest) return null;
+  // Render compact replies section
+  const renderReplies = () => {
+    if (!replies || replies.length === 0) return null;
 
     return (
-      <form className="applet-revision-bar" onSubmit={handleRevisionSubmit}>
+      <div className="applet-replies">
+        {replies.map((reply) => (
+          <div key={reply.id} className={`applet-reply applet-reply-${reply.role}`}>
+            <span className="applet-reply-icon">{reply.role === 'user' ? '👤' : '🐙'}</span>
+            <span className="applet-reply-content">{reply.content}</span>
+          </div>
+        ))}
+      </div>
+    );
+  };
+
+  // Render the reply input bar
+  const renderReplyInput = () => {
+    if (!messageId || !onReplyRequest) return null;
+
+    return (
+      <form className="applet-reply-bar" onSubmit={handleReplySubmit}>
         <input
-          ref={revisionInputRef}
+          ref={replyInputRef}
           type="text"
-          className="applet-revision-input"
+          className="applet-reply-input"
           placeholder="Describe changes to this applet..."
-          value={revisionInput}
-          onChange={(e) => setRevisionInput(e.target.value)}
-          onKeyDown={handleRevisionKeyDown}
-          disabled={isRevising || isStreaming}
+          value={replyInput}
+          onChange={(e) => setReplyInput(e.target.value)}
+          onKeyDown={handleReplyKeyDown}
+          disabled={isSubmitting || isStreaming}
         />
         <button
           type="submit"
-          className="applet-revision-submit"
-          disabled={!revisionInput.trim() || isRevising || isStreaming}
-          title="Request revision"
+          className="applet-reply-submit"
+          disabled={!replyInput.trim() || isSubmitting || isStreaming}
+          title="Send reply"
         >
-          {isRevising ? '...' : 'Revise'}
+          {isSubmitting ? '...' : 'Send'}
         </button>
       </form>
     );
@@ -291,8 +308,9 @@ ${code}
         )}
       </div>
 
-      {/* Inline revision input */}
-      {renderRevisionInput()}
+      {/* Replies and reply input */}
+      {renderReplies()}
+      {renderReplyInput()}
 
       {/* Fullscreen Modal */}
       {isFullscreen && (
@@ -348,8 +366,9 @@ ${code}
                 </pre>
               )}
             </div>
-            {/* Revision input in fullscreen mode too */}
-            {renderRevisionInput()}
+            {/* Replies and input in fullscreen mode too */}
+            {renderReplies()}
+            {renderReplyInput()}
           </div>
         </div>
       )}

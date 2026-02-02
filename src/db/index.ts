@@ -64,12 +64,22 @@ export interface MessageRevision {
   createdAt: string;
 }
 
+export interface MessageReply {
+  id: string;
+  messageId: string;
+  role: 'user' | 'assistant';
+  content: string;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+}
+
 interface DatabaseData {
   conversations: Conversation[];
   messages: Message[];
   tasks: Task[];
   embeddings: Embedding[];
   messageRevisions: MessageRevision[];
+  messageReplies: MessageReply[];
 }
 
 // ============================================================================
@@ -97,6 +107,12 @@ export interface MessageRevisionRepository {
   findByRevisionNumber(messageId: string, revisionNumber: number): MessageRevision | undefined;
   getLatestRevisionNumber(messageId: string): number;
   create(revision: MessageRevision): void;
+}
+
+export interface MessageReplyRepository {
+  findByMessageId(messageId: string): MessageReply[];
+  create(reply: MessageReply): void;
+  delete(id: string): void;
 }
 
 export interface TaskRepository {
@@ -128,6 +144,7 @@ class Database {
   tasks: TaskRepository;
   embeddings: EmbeddingRepository;
   messageRevisions: MessageRevisionRepository;
+  messageReplies: MessageReplyRepository;
 
   constructor(dbPath: string) {
     this.dbPath = dbPath.endsWith('.json') ? dbPath : dbPath.replace(/\.[^.]+$/, '') + '.json';
@@ -138,6 +155,7 @@ class Database {
     this.tasks = this.createTaskRepository();
     this.embeddings = this.createEmbeddingRepository();
     this.messageRevisions = this.createMessageRevisionRepository();
+    this.messageReplies = this.createMessageReplyRepository();
   }
 
   async init(): Promise<void> {
@@ -204,6 +222,17 @@ class Database {
       )
     `);
 
+    alasql(`
+      CREATE TABLE IF NOT EXISTS message_replies (
+        id STRING PRIMARY KEY,
+        messageId STRING,
+        role STRING,
+        content STRING,
+        metadata STRING,
+        createdAt STRING
+      )
+    `);
+
     // Load existing data from JSON file
     this.loadFromFile();
     this.initialized = true;
@@ -221,6 +250,7 @@ class Database {
         alasql('DELETE FROM tasks');
         alasql('DELETE FROM embeddings');
         alasql('DELETE FROM message_revisions');
+        alasql('DELETE FROM message_replies');
 
         // Insert loaded data (serialize complex fields for AlaSQL storage)
         if (data.conversations?.length) {
@@ -255,6 +285,13 @@ class Database {
           }));
           alasql('INSERT INTO message_revisions SELECT * FROM ?', [revisions]);
         }
+        if (data.messageReplies?.length) {
+          const replies = data.messageReplies.map(r => ({
+            ...r,
+            metadata: typeof r.metadata === 'object' ? JSON.stringify(r.metadata) : r.metadata,
+          }));
+          alasql('INSERT INTO message_replies SELECT * FROM ?', [replies]);
+        }
 
         console.log(`[Database] Loaded from ${this.dbPath}`);
       }
@@ -276,6 +313,7 @@ class Database {
       const rawTasks = alasql('SELECT * FROM tasks ORDER BY updatedAt DESC') as Array<Record<string, unknown>>;
       const rawEmbeddings = alasql('SELECT * FROM embeddings ORDER BY source, chunkIndex') as Array<Record<string, unknown>>;
       const rawRevisions = alasql('SELECT * FROM message_revisions ORDER BY messageId, revisionNumber ASC') as Array<Record<string, unknown>>;
+      const rawReplies = alasql('SELECT * FROM message_replies ORDER BY messageId, createdAt ASC') as Array<Record<string, unknown>>;
 
       // Deserialize JSON strings for human-readable output
       const data: DatabaseData = {
@@ -297,6 +335,10 @@ class Database {
           ...r,
           metadata: typeof r.metadata === 'string' ? JSON.parse(r.metadata as string) : r.metadata,
         })) as MessageRevision[],
+        messageReplies: rawReplies.map(r => ({
+          ...r,
+          metadata: typeof r.metadata === 'string' ? JSON.parse(r.metadata as string) : r.metadata,
+        })) as MessageReply[],
       };
 
       writeFileSync(this.dbPath, JSON.stringify(data, null, 2), 'utf-8');
@@ -486,6 +528,41 @@ class Database {
           metadata: JSON.stringify(revision.metadata || {}),
         };
         alasql('INSERT INTO message_revisions VALUES ?', [row]);
+        this.scheduleSave();
+      },
+    };
+  }
+
+  private createMessageReplyRepository(): MessageReplyRepository {
+    const deserializeReply = (row: Record<string, unknown>): MessageReply => ({
+      id: row.id as string,
+      messageId: row.messageId as string,
+      role: row.role as 'user' | 'assistant',
+      content: row.content as string,
+      metadata: typeof row.metadata === 'string' ? JSON.parse(row.metadata as string) : row.metadata as Record<string, unknown>,
+      createdAt: row.createdAt as string,
+    });
+
+    return {
+      findByMessageId: (messageId: string): MessageReply[] => {
+        const rows = alasql(
+          'SELECT * FROM message_replies WHERE messageId = ? ORDER BY createdAt ASC',
+          [messageId]
+        ) as Array<Record<string, unknown>>;
+        return rows.map(deserializeReply);
+      },
+
+      create: (reply: MessageReply): void => {
+        const row = {
+          ...reply,
+          metadata: JSON.stringify(reply.metadata || {}),
+        };
+        alasql('INSERT INTO message_replies VALUES ?', [row]);
+        this.scheduleSave();
+      },
+
+      delete: (id: string): void => {
+        alasql('DELETE FROM message_replies WHERE id = ?', [id]);
         this.scheduleSave();
       },
     };

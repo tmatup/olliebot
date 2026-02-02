@@ -213,6 +213,9 @@ function App() {
   // Expanded tool events
   const [expandedTools, setExpandedTools] = useState(new Set());
 
+  // Message replies (map of messageId -> array of replies)
+  const [messageReplies, setMessageReplies] = useState({});
+
   // Mode state (chat or eval)
   const [mode, setMode] = useState(MODES.CHAT);
 
@@ -529,6 +532,14 @@ function App() {
       if (!isForCurrentConversation(data.conversationId)) return;
 
       setMessages((prev) => prev.filter((m) => m.id !== data.messageId));
+    } else if (data.type === 'message-reply-added') {
+      // New reply added to a message
+      if (!isForCurrentConversation(data.conversationId)) return;
+
+      setMessageReplies((prev) => ({
+        ...prev,
+        [data.messageId]: [...(prev[data.messageId] || []), data.reply],
+      }));
     }
   }, []);
 
@@ -1251,7 +1262,7 @@ function App() {
   };
 
   // Render markdown with inline HTML support
-  const renderContent = (content, html = false, isStreaming = false, messageId = null, onAppletRevision = null) => {
+  const renderContent = (content, html = false, isStreaming = false, messageId = null, onReplyRequest = null, replies = []) => {
     return (
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
@@ -1278,7 +1289,8 @@ function App() {
                     code={codeContent}
                     isStreaming={isStreaming}
                     messageId={messageId}
-                    onRevisionRequest={onAppletRevision}
+                    onReplyRequest={onReplyRequest}
+                    replies={replies}
                   />
                 );
               }
@@ -1436,12 +1448,12 @@ function App() {
     toggleAccordion('browserSessions');
   }, [toggleAccordion]);
 
-  // Handle applet revision request
-  const handleAppletRevision = useCallback((messageId, instructions) => {
+  // Handle message reply request
+  const handleMessageReply = useCallback((messageId, content) => {
     sendMessage({
-      type: 'applet-revision',
+      type: 'message-reply',
       messageId,
-      instructions,
+      content,
       conversationId: currentConversationId,
     });
   }, [sendMessage, currentConversationId]);
@@ -1957,7 +1969,7 @@ function App() {
                 {msg.agentName && msg.role === 'assistant' && (
                   <div className="agent-name">{msg.agentName}</div>
                 )}
-                {renderContent(msg.content, msg.html, msg.isStreaming, msg.id, handleAppletRevision)}
+                {renderContent(msg.content, msg.html, msg.isStreaming, msg.id, handleMessageReply, messageReplies[msg.id] || [])}
                 {msg.attachments && msg.attachments.length > 0 && (
                   <div className="message-attachments">
                     {msg.attachments.map((att, index) => (

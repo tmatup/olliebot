@@ -455,7 +455,7 @@ export class OllieBotServer {
     this.app.get('/api/messages/:id/revisions', (req: Request, res: Response) => {
       try {
         const db = getDb();
-        const messageId = req.params.id;
+        const messageId = req.params.id as string;
         const revisions = db.messageRevisions.findByMessageId(messageId);
         res.json(revisions.map(r => ({
           id: r.id,
@@ -475,8 +475,8 @@ export class OllieBotServer {
     this.app.get('/api/messages/:id/revisions/:revisionNumber', (req: Request, res: Response) => {
       try {
         const db = getDb();
-        const messageId = req.params.id;
-        const revisionNumber = parseInt(req.params.revisionNumber);
+        const messageId = req.params.id as string;
+        const revisionNumber = parseInt(req.params.revisionNumber as string);
         const revision = db.messageRevisions.findByRevisionNumber(messageId, revisionNumber);
         if (!revision) {
           res.status(404).json({ error: 'Revision not found' });
@@ -493,6 +493,26 @@ export class OllieBotServer {
       } catch (error) {
         console.error('[API] Failed to fetch revision:', error);
         res.status(500).json({ error: 'Failed to fetch revision' });
+      }
+    });
+
+    // Get message replies
+    this.app.get('/api/messages/:id/replies', (req: Request, res: Response) => {
+      try {
+        const db = getDb();
+        const messageId = req.params.id as string;
+        const replies = db.messageReplies.findByMessageId(messageId);
+        res.json(replies.map(r => ({
+          id: r.id,
+          messageId: r.messageId,
+          role: r.role,
+          content: r.content,
+          metadata: r.metadata,
+          createdAt: r.createdAt,
+        })));
+      } catch (error) {
+        console.error('[API] Failed to fetch replies:', error);
+        res.status(500).json({ error: 'Failed to fetch replies' });
       }
     });
 
@@ -633,7 +653,7 @@ export class OllieBotServer {
     }
 
     // Handle message updates - store revisions before updating
-    this.webChannel.onMessageUpdate(async (messageId, newContent, _conversationId) => {
+    this.webChannel.onMessageUpdated(async (messageId, newContent, _conversationId) => {
       try {
         const db = getDb();
 
@@ -665,11 +685,11 @@ export class OllieBotServer {
       }
     });
 
-    // Handle applet revision requests from users
-    this.webChannel.onAppletRevision(async (messageId, instructions, conversationId) => {
-      console.log(`[Server] Applet revision request for message ${messageId}: ${instructions}`);
+    // Handle message reply requests from users
+    this.webChannel.onMessageReply(async (messageId, content, conversationId) => {
+      console.log(`[Server] Message reply request for message ${messageId}: ${content}`);
       // Forward to supervisor to process with LLM
-      await this.supervisor.handleAppletRevision(messageId, instructions, conversationId);
+      await this.supervisor.handleMessageReply(messageId, content, conversationId);
     });
 
     // Start listening

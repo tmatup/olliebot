@@ -338,19 +338,12 @@ requestAnimationFrame(loop);
 </script>
 ```
 
-## Message Revision
+## Message Updates
 
 The agent can update existing messages using the `message_update` WebSocket event. This is useful for:
 - Evolving applets that change over time
 - Progress updates
 - Correcting mistakes without adding new messages
-
-### Inline Revision Input
-
-Each applet has an inline input bar where users can type instructions to modify the applet:
-1. Type your revision instructions (e.g., "make the cells blue instead of green")
-2. Press Enter or click "Revise"
-3. The agent processes your request and updates the applet in place
 
 ### Revision History
 
@@ -379,6 +372,63 @@ Each revision includes:
 channel.updateMessage(messageId, {
   content: 'Updated content with ```applet code block```',
 });
+```
+
+## Message Replies
+
+When a message contains an applet, users can send replies to request modifications. The reply system persists all exchanges and displays them compactly below the applet.
+
+### Inline Reply Input
+
+Each applet has an inline input bar where users can type instructions to modify the applet:
+1. Type your instructions (e.g., "make the cells blue instead of green")
+2. Press Enter or click "Send"
+3. The agent processes your request, updates the applet, and the exchange is stored
+
+### Reply History
+
+All replies are stored and can be retrieved via the API:
+
+```bash
+# Get all replies for a message
+GET /api/messages/:messageId/replies
+```
+
+Each reply includes:
+- `id` - Unique reply ID
+- `messageId` - Parent message ID
+- `role` - "user" or "assistant"
+- `content` - The reply text
+- `metadata` - Associated metadata (e.g., revised code for assistant replies)
+- `createdAt` - Timestamp
+
+### WebSocket Events
+
+When a reply is added, the server broadcasts a `message-reply-added` event:
+
+```json
+{
+  "type": "message-reply-added",
+  "messageId": "...",
+  "reply": {
+    "id": "...",
+    "role": "user",
+    "content": "Make the cells blue"
+  },
+  "conversationId": "...",
+  "timestamp": "..."
+}
+```
+
+To send a reply, clients send a `message-reply` event:
+
+```json
+{
+  "type": "message-reply",
+  "messageId": "...",
+  "content": "Make the cells blue",
+  "conversationId": "..."
+}
 ```
 
 ## Best Practices
