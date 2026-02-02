@@ -7,11 +7,13 @@
 export * from './types.js';
 export { GoogleComputerUseProvider } from './google.js';
 export { AzureOpenAIComputerUseProvider } from './azure-openai.js';
+export { OpenAIComputerUseProvider } from './openai.js';
 
 import type { ComputerUseProvider } from '../../../types.js';
 import type { IComputerUseProvider, ComputerUseProviderConfig } from './types.js';
 import { GoogleComputerUseProvider } from './google.js';
 import { AzureOpenAIComputerUseProvider } from './azure-openai.js';
+import { OpenAIComputerUseProvider } from './openai.js';
 
 /**
  * Creates a Computer Use provider based on the provider type.
@@ -33,9 +35,7 @@ export function createComputerUseProvider(
       return new AzureOpenAIComputerUseProvider(config);
 
     case 'openai':
-      // TODO: Implement OpenAI provider
-      console.warn('[Browser] OpenAI CUA provider not yet implemented, falling back to Azure OpenAI');
-      return new AzureOpenAIComputerUseProvider(config);
+      return new OpenAIComputerUseProvider(config);
 
     default:
       return new AzureOpenAIComputerUseProvider(config);

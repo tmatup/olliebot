@@ -77,6 +77,11 @@ export function getAvailableProviders(strategyType: 'computer-use' | 'dom'): Arr
         description: 'Cheapest and fastest. Best for cost-sensitive use cases.',
       },
       {
+        id: 'azure_openai',
+        name: 'Azure OpenAI',
+        description: 'Enterprise-friendly. Requires Azure endpoint + key.',
+      },
+      {
         id: 'anthropic',
         name: 'Anthropic Claude',
         description: 'Most mature. Best for desktop automation.',

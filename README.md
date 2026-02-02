@@ -95,9 +95,19 @@ npm run dev:server console
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `BROWSER_PROVIDER` | Computer Use provider (`azure_openai`, `google`) | `azure_openai` |
+| `BROWSER_PROVIDER` | Computer Use provider (`azure_openai`, `google`, `openai`, `anthropic`) | `azure_openai` |
 | `BROWSER_MODEL` | Model for browser automation | `computer-use-preview` |
 | `BROWSER_DEBUG_MODE` | Enable live preview in web UI | `false` |
+| `OPENAI_BASE_URL` | Override OpenAI Responses API base URL | `https://api.openai.com/v1/responses` |
+
+OpenAI Computer Use (Preview) quick setup:
+```
+BROWSER_PROVIDER=openai
+BROWSER_MODEL=computer-use-preview
+OPENAI_API_KEY=...
+```
+
+Note: Access to `computer-use-preview` is restricted. If you see a `model_not_found` error, your account likely doesn’t have access or the model name differs for you.
 
 ### Task Configuration
 
