@@ -239,7 +239,7 @@ export class SupervisorAgentImpl extends AbstractAgent implements ISupervisorAge
 
                 // If not in a delegation block, send filtered content
                 if (!inDelegateBlock) {
-                  const displayContent = streamBuffer.replace(/```delegate\s*[\s\S]*?```/g, '').trim();
+                  const displayContent = streamBuffer.replace(/```delegate\s*[\s\S]*?```/g, '');
                   if (displayContent) {
                     channel.sendStreamChunk!(streamId, displayContent, this.currentConversationId || undefined);
                   }
@@ -249,7 +249,7 @@ export class SupervisorAgentImpl extends AbstractAgent implements ISupervisorAge
               onComplete: () => {
                 // Flush any remaining buffered content (filtered)
                 if (streamBuffer) {
-                  const displayContent = streamBuffer.replace(/```delegate\s*[\s\S]*?```/g, '').trim();
+                  const displayContent = streamBuffer.replace(/```delegate\s*[\s\S]*?```/g, '');
                   if (displayContent) {
                     channel.sendStreamChunk!(streamId, displayContent, this.currentConversationId || undefined);
                   }
@@ -315,7 +315,7 @@ export class SupervisorAgentImpl extends AbstractAgent implements ISupervisorAge
                 // If not potentially in a delegation block, send buffered content (minus any trailing partial markers)
                 if (!hasPartialDelegate && !streamBuffer.includes('```delegate')) {
                   // Remove any delegation blocks that are complete
-                  const displayContent = streamBuffer.replace(/```delegate\s*[\s\S]*?```/g, '').trim();
+                  const displayContent = streamBuffer.replace(/```delegate\s*[\s\S]*?```/g, '');
                   if (displayContent) {
                     channel.sendStreamChunk!(streamId, displayContent, this.currentConversationId || undefined);
                   }
@@ -325,7 +325,7 @@ export class SupervisorAgentImpl extends AbstractAgent implements ISupervisorAge
               onComplete: () => {
                 // Send any remaining buffered content (filtered)
                 if (streamBuffer) {
-                  const displayContent = streamBuffer.replace(/```delegate\s*[\s\S]*?```/g, '').trim();
+                  const displayContent = streamBuffer.replace(/```delegate\s*[\s\S]*?```/g, '');
                   if (displayContent) {
                     channel.sendStreamChunk!(streamId, displayContent, this.currentConversationId || undefined);
                   }
