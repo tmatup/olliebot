@@ -14,11 +14,10 @@ Why create this when "XYZ" exists (XYZ = whatever is trending this week)?
 - **Built-in Tools**: Web search, Wikipedia search, web scraping, image analysis, image generation, etc.
 - **User-Defined Tools**: Write tool specs in natural language in `.md`, auto-generate `.js` and execute in sandboxed VM 
 - **Browser Automation**: Computer Use models for visual browser automation with live preview. This feature is fairly limited to the ability of the underlying model - which is not great.
+- **Multi-Channel Communication**: Web UI, Console CLI, TUI, TODO: Microsoft Teams (untested)
 
 ## Experimantal Features (not well tested)
 
-- **Multi-Channel Communication**: Web UI, Console CLI, Microsoft Teams
-- **A2UI Human-in-the-Loop**: Request user input during automated workflows
 - **RAG System**: Automatic chunking and retrieval for large documents
 - **Git Versioning**: All config changes tracked in local git
 
@@ -76,12 +75,17 @@ npm run dev:server console
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `ANTHROPIC_API_KEY` | Anthropic API key | Required |
-| `GOOGLE_API_KEY` | Google API key (for Gemini + embeddings) | Optional |
-| `MAIN_PROVIDER` | Main LLM provider (`anthropic` or `google`) | `anthropic` |
-| `MAIN_MODEL` | Main LLM model | `claude-sonnet-4-20250514` |
-| `FAST_PROVIDER` | Fast LLM provider | `google` |
-| `FAST_MODEL` | Fast LLM model | `gemini-2.5-flash-lite` |
+| `ANTHROPIC_API_KEY` | Anthropic API key | Optional |
+| `GOOGLE_API_KEY` | Gemini API key | Optional |
+| `OPENAI_API_KEY` | OpenAI API key | Optional |
+| `AZURE_OPENAI_API_KEY` | Azure OpenAI API key | Optional |
+| `AZURE_OPENAI_ENDPOINT` | Azure OpenAI endpoint | - |
+| `MAIN_PROVIDER` | Main LLM provider (`openai`, `azure_openai`, `anthropic`, `google` | `openai` |
+| `MAIN_MODEL` | Main LLM model | `gpt-5.2` |
+| `FAST_PROVIDER` | Fast LLM provider | `openai` |
+| `FAST_MODEL` | Fast LLM model | `gpt-4.1-mini` |
+| `IMAGE_GEN_PROVIDER` | Image gen provider | `openai` |
+| `IMAGE_GEN_MODEL` | Image gen model | `dall-e-3` |
 | `PORT` | Server port | `3000` |
 | `MCP_SERVERS` | JSON array of MCP server configs | `[]` |
 | `WEB_SEARCH_API_KEY` | API key for web search (Serper or Google CSE) | Optional |
@@ -94,8 +98,6 @@ npm run dev:server console
 | `BROWSER_PROVIDER` | Computer Use provider (`azure_openai`, `google`) | `azure_openai` |
 | `BROWSER_MODEL` | Model for browser automation | `computer-use-preview` |
 | `BROWSER_DEBUG_MODE` | Enable live preview in web UI | `false` |
-| `AZURE_OPENAI_ENDPOINT` | Azure OpenAI endpoint (for azure_openai provider) | - |
-| `AZURE_OPENAI_API_KEY` | Azure OpenAI API key (for azure_openai provider) | - |
 
 ### Task Configuration
 
@@ -119,19 +121,8 @@ Send the summary through the web chat.
 
 ### Skills
 
-Create SKILL.md files in `user/skills/` for reusable workflows:
-```markdown
-# Summarize URL
-
-## Inputs
-| Name | Description | Type | Required |
-|------|-------------|------|----------|
-| url | URL to summarize | string | yes |
-
-## Steps
-1. Fetch URL content
-2. Generate summary
-```
+Create or download Agent Skills (SKILL.md) from various marketplace or collections and unzip them in `user/skills/`.
+Skills are reusable workflows that can be part of a task like how to make a good PowerPoint deck.
 
 ### User-Defined Tools
 
