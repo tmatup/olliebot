@@ -101,6 +101,11 @@ function App() {
   // Actions menu state
   const [openMenuId, setOpenMenuId] = useState(null);
 
+  // Inline rename state
+  const [editingConversationId, setEditingConversationId] = useState(null);
+  const [editingTitle, setEditingTitle] = useState('');
+  const renameInputRef = useRef(null);
+
   // Auto-scroll state
   const [isUserScrolled, setIsUserScrolled] = useState(false);
   const [showScrollButton, setShowScrollButton] = useState(false);
@@ -326,11 +331,19 @@ function App() {
       setCurrentConversationId(conv.id);
     } else if (data.type === 'conversation_updated') {
       // Conversation title or metadata was updated
-      const { id, title, updatedAt } = data.conversation;
+      const { id, title, updatedAt, manuallyNamed } = data.conversation;
       setConversations((prev) =>
-        prev.map((c) =>
-          c.id === id ? { ...c, title: title || c.title, updatedAt: updatedAt || c.updatedAt } : c
-        )
+        prev.map((c) => {
+          if (c.id !== id) return c;
+          // Don't override manually named conversations with auto-generated titles
+          if (c.manuallyNamed && !manuallyNamed) return c;
+          return {
+            ...c,
+            title: title || c.title,
+            updatedAt: updatedAt || c.updatedAt,
+            manuallyNamed: manuallyNamed || c.manuallyNamed,
+          };
+        })
       );
     } else if (data.type === 'task_updated') {
       // Task was updated (e.g., after execution)
@@ -716,6 +729,76 @@ function App() {
       console.error('Failed to delete conversation:', error);
     }
   }, [conversations, currentConversationId]);
+
+  // Start inline rename
+  const handleRenameConversation = useCallback((convId, e) => {
+    e.stopPropagation();
+    setOpenMenuId(null);
+
+    const conversation = conversations.find((c) => c.id === convId);
+    if (!conversation) return;
+
+    setEditingConversationId(convId);
+    setEditingTitle(conversation.title);
+    // Focus the input after render
+    setTimeout(() => renameInputRef.current?.focus(), 0);
+  }, [conversations]);
+
+  // Save the rename
+  const handleSaveRename = useCallback(async () => {
+    if (!editingConversationId) return;
+
+    const originalConv = conversations.find((c) => c.id === editingConversationId);
+    const newTitle = editingTitle.trim();
+
+    // Cancel if empty or unchanged
+    if (!newTitle || newTitle === originalConv?.title) {
+      setEditingConversationId(null);
+      setEditingTitle('');
+      return;
+    }
+
+    try {
+      const res = await fetch(`/api/conversations/${editingConversationId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: newTitle }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        setConversations((prev) =>
+          prev.map((c) =>
+            c.id === editingConversationId
+              ? { ...c, title: data.conversation.title, manuallyNamed: true }
+              : c
+          )
+        );
+      }
+    } catch (error) {
+      console.error('Failed to rename conversation:', error);
+    }
+
+    setEditingConversationId(null);
+    setEditingTitle('');
+  }, [editingConversationId, editingTitle, conversations]);
+
+  // Cancel the rename
+  const handleCancelRename = useCallback(() => {
+    setEditingConversationId(null);
+    setEditingTitle('');
+  }, []);
+
+  // Handle keydown in rename input
+  const handleRenameKeyDown = useCallback((e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleSaveRename();
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      handleCancelRename();
+    }
+  }, [handleSaveRename, handleCancelRename]);
 
   // Toggle actions menu
   const toggleActionsMenu = useCallback((convId, e) => {
@@ -1251,15 +1334,30 @@ function App() {
             {!conversationsLoading && conversations.map((conv) => (
               <div
                 key={conv.id}
-                className={`conversation-item ${conv.id === currentConversationId ? 'active' : ''} ${conv.isWellKnown ? 'well-known' : ''}`}
-                onClick={() => handleSelectConversation(conv.id)}
+                className={`conversation-item ${conv.id === currentConversationId ? 'active' : ''} ${conv.isWellKnown ? 'well-known' : ''} ${editingConversationId === conv.id ? 'editing' : ''}`}
+                onClick={() => editingConversationId !== conv.id && handleSelectConversation(conv.id)}
               >
                 <div className="conversation-info">
-                  <div className="conversation-title">
-                    {conv.icon && <span className="conversation-icon">{conv.icon}</span>}
-                    {conv.title}
-                  </div>
-                  <div className="conversation-date">{formatDate(conv.updatedAt)}</div>
+                  {editingConversationId === conv.id ? (
+                    <input
+                      ref={renameInputRef}
+                      type="text"
+                      className="conversation-rename-input"
+                      value={editingTitle}
+                      onChange={(e) => setEditingTitle(e.target.value)}
+                      onKeyDown={handleRenameKeyDown}
+                      onBlur={handleSaveRename}
+                      onClick={(e) => e.stopPropagation()}
+                    />
+                  ) : (
+                    <>
+                      <div className="conversation-title">
+                        {conv.icon && <span className="conversation-icon">{conv.icon}</span>}
+                        {conv.title}
+                      </div>
+                      <div className="conversation-date">{formatDate(conv.updatedAt)}</div>
+                    </>
+                  )}
                 </div>
                 {/* Hide actions menu for well-known conversations */}
                 {!conv.isWellKnown && (
@@ -1273,6 +1371,12 @@ function App() {
                     </button>
                     {openMenuId === conv.id && (
                       <div className="actions-menu">
+                        <button
+                          className="actions-menu-item"
+                          onClick={(e) => handleRenameConversation(conv.id, e)}
+                        >
+                          Rename
+                        </button>
                         <button
                           className="actions-menu-item delete"
                           onClick={(e) => handleDeleteConversation(conv.id, e)}

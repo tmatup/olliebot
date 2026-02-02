@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback, memo } from 'react';
 import Prism from 'prismjs';
 import 'prismjs/components/prism-markup';
 import 'prismjs/themes/prism-tomorrow.css';
@@ -13,8 +13,10 @@ const HEIGHT_STEP = 100;
  *
  * When isStreaming is true, only raw HTML view is shown to prevent flashing.
  * When streaming ends, it auto-switches to preview mode.
+ *
+ * Memoized to prevent unnecessary re-renders from parent state changes.
  */
-function HtmlPreview({ html, className = '', isStreaming = false }) {
+const HtmlPreview = memo(function HtmlPreview({ html, className = '', isStreaming = false }) {
   const [viewMode, setViewMode] = useState(isStreaming ? 'raw' : 'preview');
   const [height, setHeight] = useState(DEFAULT_HEIGHT);
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -23,6 +25,10 @@ function HtmlPreview({ html, className = '', isStreaming = false }) {
   const iframeRef = useRef(null);
   const modalIframeRef = useRef(null);
   const modalCodeRef = useRef(null);
+
+  // Track the last HTML written to each iframe to avoid unnecessary rewrites
+  const lastWrittenHtmlRef = useRef(null);
+  const lastWrittenModalHtmlRef = useRef(null);
 
   const increaseHeight = () => setHeight((h) => h + HEIGHT_STEP);
   const decreaseHeight = () => setHeight((h) => Math.max(MIN_HEIGHT, h - HEIGHT_STEP));
@@ -51,7 +57,7 @@ function HtmlPreview({ html, className = '', isStreaming = false }) {
   }, [viewMode, html, isFullscreen]);
 
   // Helper to write HTML to an iframe and adjust its height to fit content
-  const writeToIframe = (iframe) => {
+  const writeToIframe = useCallback((iframe, htmlContent) => {
     if (!iframe) return;
     const doc = iframe.contentDocument;
     if (doc) {
@@ -85,7 +91,7 @@ function HtmlPreview({ html, className = '', isStreaming = false }) {
             code { background: #f5f5f5; padding: 2px 4px; border-radius: 3px; }
           </style>
         </head>
-        <body>${html}</body>
+        <body>${htmlContent}</body>
         </html>
       `);
       doc.close();
@@ -99,21 +105,34 @@ function HtmlPreview({ html, className = '', isStreaming = false }) {
         }
       }, 0);
     }
-  };
+  }, []);
 
-  // Update iframe content when in preview mode
+  // Update iframe content when in preview mode - only if html actually changed
+  // Also write if iframe is empty (e.g., after switching from raw mode)
   useEffect(() => {
     if (viewMode === 'preview') {
-      writeToIframe(iframeRef.current);
+      const iframe = iframeRef.current;
+      const needsWrite = html !== lastWrittenHtmlRef.current ||
+        !iframe?.contentDocument?.body?.innerHTML;
+      if (needsWrite) {
+        writeToIframe(iframe, html);
+        lastWrittenHtmlRef.current = html;
+      }
     }
-  }, [viewMode, html]);
+  }, [viewMode, html, writeToIframe]);
 
-  // Update modal iframe content when fullscreen is open
+  // Update modal iframe content when fullscreen is open - only if html actually changed
   useEffect(() => {
     if (isFullscreen && viewMode === 'preview') {
-      writeToIframe(modalIframeRef.current);
+      const iframe = modalIframeRef.current;
+      const needsWrite = html !== lastWrittenModalHtmlRef.current ||
+        !iframe?.contentDocument?.body?.innerHTML;
+      if (needsWrite) {
+        writeToIframe(iframe, html);
+        lastWrittenModalHtmlRef.current = html;
+      }
     }
-  }, [isFullscreen, viewMode, html]);
+  }, [isFullscreen, viewMode, html, writeToIframe]);
 
   // Close modal on Escape key
   useEffect(() => {
@@ -249,6 +268,6 @@ function HtmlPreview({ html, className = '', isStreaming = false }) {
       )}
     </div>
   );
-}
+});
 
 export default HtmlPreview;

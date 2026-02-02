@@ -20,6 +20,7 @@ export interface Conversation {
   createdAt: string;
   updatedAt: string;
   deletedAt: string | null;
+  manuallyNamed?: boolean;
 }
 
 export interface Message {

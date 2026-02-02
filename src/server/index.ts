@@ -326,6 +326,52 @@ export class OllieBotServer {
       }
     });
 
+    // Rename a conversation (well-known conversations cannot be renamed)
+    this.app.patch('/api/conversations/:id', (req: Request, res: Response) => {
+      try {
+        const id = req.params.id as string;
+        const { title } = req.body;
+
+        if (!title || typeof title !== 'string') {
+          res.status(400).json({ error: 'Title is required' });
+          return;
+        }
+
+        // Prevent renaming of well-known conversations
+        if (isWellKnownConversation(id)) {
+          res.status(403).json({ error: 'Well-known conversations cannot be renamed' });
+          return;
+        }
+
+        const db = getDb();
+        const conversation = db.conversations.findById(id);
+        if (!conversation) {
+          res.status(404).json({ error: 'Conversation not found' });
+          return;
+        }
+
+        const now = new Date().toISOString();
+        db.conversations.update(id, {
+          title: title.trim().substring(0, 100),
+          manuallyNamed: true,
+          updatedAt: now,
+        });
+
+        res.json({
+          success: true,
+          conversation: {
+            id,
+            title: title.trim().substring(0, 100),
+            manuallyNamed: true,
+            updatedAt: now,
+          },
+        });
+      } catch (error) {
+        console.error('[API] Failed to rename conversation:', error);
+        res.status(500).json({ error: 'Failed to rename conversation' });
+      }
+    });
+
     // Get chat history (for current/active conversation)
     this.app.get('/api/messages', (req: Request, res: Response) => {
       try {

@@ -193,6 +193,27 @@ html, body {
   color: var(--text-secondary);
 }
 
+/* Inline rename input */
+.conversation-item.editing {
+  background: var(--bg-tertiary);
+}
+
+.conversation-rename-input {
+  width: 100%;
+  padding: 0.25rem 0.5rem;
+  font-size: 0.875rem;
+  color: var(--text-primary);
+  background: var(--bg-primary);
+  border: 1px solid var(--accent);
+  border-radius: 0.25rem;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.conversation-rename-input:focus {
+  box-shadow: 0 0 0 2px rgba(var(--accent-rgb, 59, 130, 246), 0.3);
+}
+
 .no-conversations {
   padding: 1rem;
   text-align: center;

@@ -726,10 +726,19 @@ export class SupervisorAgentImpl extends AbstractAgent implements ISupervisorAge
 
   /**
    * Auto-generate a conversation title based on the first few messages
+   * Skips conversations that have been manually named by the user
    */
   private async autoNameConversation(conversationId: string, channelId: string): Promise<void> {
     try {
       const db = getDb();
+
+      // Skip if conversation was manually named
+      const conversation = db.conversations.findById(conversationId);
+      if (conversation?.manuallyNamed) {
+        console.log(`[${this.identity.name}] Skipping auto-name for manually named conversation`);
+        return;
+      }
+
       const messages = db.messages.findByConversationId(conversationId, { limit: 5 });
 
       if (messages.length < 3) return;
