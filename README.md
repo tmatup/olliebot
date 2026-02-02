@@ -1,72 +1,87 @@
 # OllieBot
 
-Personal agent that runs continuously to respond to triggers and perform recurring tasks.
+Personal assistant that runs continuously to respond to triggers and perform recurring tasks even without direct user input.
 
 Why create this when "XYZ" exists (XYZ = whatever is trending this week)?
-- This is a lab for agent feature set experiments. Because this is a single fully localized code base, it is easier to experiment with different ways that agents could work or even what an agent is.
+- This is a lab for agent / assistant feature experiments. Because this is a single self-contained code base, it is easier to experiment with different ways that agents could work, how they could be built/defined or even what an agent is.
 
-## Features
-- **Natural Language Configuration**: Define tasks in `.md` files, automatically converted to structured JSON
+## Novel Features
+- **Integrated Eval**: Define evals in JSON, and test how well the system prompts for main agent and subagents work.
+- **Natural Language Tasks**: Define recurring tasks in `.md` files, the system auto-generate a structured JSON for more predictable execution.
+- **Natural Language Tools**: Add your own tool in natural language `.md`, the system auto-generate `.js` and execute in sandboxed VM 
+
+## Commodity Features
 - **Customizable Sub-agent**: Can launch specialized sub-agent for sub-tasks and these specialized sub-agents have system prompts that are customizable.
 - **MCP Integration**: Connect to Model Context Protocol servers for external tools
 - **Agent Skills Workflows**: Pre-packaged workflows like those for Claude (open standard)
 - **Git Versioning**: All config changes tracked in local git
 - **Built-in Tools**: Web search, Wikipedia search, web scraping, image analysis, image generation, etc.
-- **User-Defined Tools**: Write tool specs in natural language in `.md`, auto-generate `.js` and execute in sandboxed VM 
 - **Browser Automation**: Computer Use models for visual browser automation with live preview. This feature is fairly limited to the ability of the underlying model - which is not great.
 - **Multi-Channel Communication**: Web UI, Console CLI, TUI, TODO: Microsoft Teams (untested)
 
-## Experimantal Features (not well tested)
+## 
+
+## Untested / Undertested Features
 
 - **RAG System**: Automatic chunking and retrieval for large documents
 - **Git Versioning**: All config changes tracked in local git
 
 ## Quick Start
 
-### Prerequisites
-- Node.js 20+
-- npm or pnpm
-
-### Setup
-
 1. Install dependencies:
+
 ```bash
 npm install
-```
-
-2. Install Playwright browsers (required for Browser Automation):
-```bash
 npx playwright install
 ```
 
-3. Create environment file:
+2. Create environment file:
 ```bash
 cp .env.example .env
 ```
 
-4. Add your API keys to `.env`:
+3. Add your API keys to `.env`, pick your providers. My example:
 ```env
-ANTHROPIC_API_KEY=your-anthropic-key
-GOOGLE_API_KEY=your-google-key  # Optional, for Gemini + embeddings
+AZURE_OPENAI_API_KEY=<YOURS: api key>
+AZURE_OPENAI_ENDPOINT=https://jarvistest32747981598.cognitiveservices.azure.com
+MAIN_PROVIDER=azure_openai
+MAIN_MODEL=gpt-5.2
+FAST_PROVIDER=azure_openai
+FAST_MODEL=gpt-4.1-mini
+IMAGE_GEN_PROVIDER=azure_openai
+IMAGE_GEN_MODEL=dall-e-3
+BROWSER_PROVIDER=azure_openai
+BROWSER_MODEL=computer-use-preview 
+WEB_SEARCH_PROVIDER=serper
+WEB_SEARCH_API_KEY=<YOURS serper free API key>
+# need to be in a single line, .env can't handle multi-line, remember to pur YOUR own PAT token
+MCP_SERVERS={"mcpServers":{"github":{"command":"npx","args":["-y","@modelcontextprotocol/server-github"],"env":{"GITHUB_PERSONAL_ACCESS_TOKEN":"ghp_..."}}}}
 ```
 
-5. Start the server:
+4. Start the server:
 ```bash
 npm run dev:server
 ```
 
-6. Start the web UI (in another terminal):
+5. Start the web UI (in another terminal):
 ```bash
 npm run dev:web
 ```
 
-7. Open http://localhost:5173 in your browser
+6. Open http://localhost:5173 in your browser
 
-### Console Mode
+### Other Experimental Interface (Do not have feature parity!)
 
-For CLI-only interaction:
+The shared server must be running (step 4 above)
+
+For CLI:
 ```bash
-npm run dev:server console
+npm run dev:console
+```
+
+For TUI (Terminal User Interface):
+```bash
+npm run dev:tui
 ```
 
 ## Configuration
