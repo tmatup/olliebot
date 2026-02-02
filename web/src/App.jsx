@@ -7,6 +7,7 @@ import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { useWebSocket } from './hooks/useWebSocket';
 import HtmlPreview from './components/HtmlPreview';
+import AppletPreview from './components/AppletPreview';
 import { EvalSidebar, EvalRunner } from './components/eval';
 
 // Mode constants
@@ -501,6 +502,33 @@ function App() {
       setTimeout(() => {
         setClickMarkers((prev) => prev.filter((m) => m.id !== marker.id));
       }, 1500);
+    } else if (data.type === 'message_update') {
+      // Message revision/update - replace content of existing message
+      // Only process updates for current conversation
+      if (!isForCurrentConversation(data.conversationId)) return;
+
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === data.messageId
+            ? {
+                ...m,
+                content: data.content !== undefined ? data.content : m.content,
+                // Support partial updates - only update fields that are provided
+                ...(data.buttons !== undefined && { buttons: data.buttons }),
+                ...(data.html !== undefined && { html: data.html }),
+                ...(data.agentName !== undefined && { agentName: data.agentName }),
+                ...(data.agentEmoji !== undefined && { agentEmoji: data.agentEmoji }),
+                // Track revision count for debugging/UI
+                revisionCount: (m.revisionCount || 0) + 1,
+              }
+            : m
+        )
+      );
+    } else if (data.type === 'message_delete') {
+      // Delete a message from the chat
+      if (!isForCurrentConversation(data.conversationId)) return;
+
+      setMessages((prev) => prev.filter((m) => m.id !== data.messageId));
     }
   }, []);
 
@@ -1220,6 +1248,62 @@ function App() {
     if (bytes < 1024) return `${bytes} B`;
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  };
+
+  // Render markdown with inline HTML support
+  const renderContent = (content, html = false, isStreaming = false) => {
+    return (
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        rehypePlugins={html ? [rehypeRaw, rehypeSanitize] : [rehypeSanitize]}
+        components={{
+          // Custom rendering for pre (code blocks)
+          pre({ children }) {
+            return <div className="code-block-wrapper">{children}</div>;
+          },
+          // Custom rendering for code with syntax highlighting
+          code({ node, className, children, ...props }) {
+            const match = /language-(\w+)/.exec(className || '');
+            const language = match ? match[1] : null;
+            // If inside a pre tag (code block), render as block
+            const isBlock = match || (node?.tagName === 'code' && node?.parent?.tagName === 'pre');
+
+            if (isBlock) {
+              const codeContent = String(children).replace(/\n$/, '');
+
+              // Check if this is an interactive applet - render with AppletPreview
+              if (language === 'applet' || language === 'interactive') {
+                return <AppletPreview code={codeContent} isStreaming={isStreaming} />;
+              }
+
+              // Check if this is HTML content - render with HtmlPreview
+              if (language === 'html' || language === 'htm') {
+                return <HtmlPreview html={codeContent} isStreaming={isStreaming} />;
+              }
+
+              // Use CodeBlock component with copy button
+              return <CodeBlock language={language}>{codeContent}</CodeBlock>;
+            }
+            // Inline code
+            return (
+              <code className="inline-code" {...props}>
+                {children}
+              </code>
+            );
+          },
+          // Custom table rendering
+          table({ children }) {
+            return (
+              <div className="table-wrapper">
+                <table>{children}</table>
+              </div>
+            );
+          },
+        }}
+      >
+        {content}
+      </ReactMarkdown>
+    );
   };
 
   // Toggle accordion

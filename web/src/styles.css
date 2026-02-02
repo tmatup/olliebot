@@ -1266,6 +1266,288 @@ html, body {
   box-sizing: border-box;
 }
 
+/* ===========================================
+   Applet Preview Component
+   Interactive HTML/JS applets with sandboxed execution
+   =========================================== */
+.message:has(.applet-preview) {
+  max-width: 95%;
+  width: 95%;
+}
+
+.message:has(.applet-preview) .message-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.applet-preview {
+  margin: 0.5rem 0;
+  border: 1px solid var(--border-color);
+  border-radius: 0.5rem;
+  overflow: hidden;
+  background: var(--bg-tertiary);
+  width: 100%;
+}
+
+.applet-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.25rem 0.5rem;
+  background: linear-gradient(135deg, rgba(76, 175, 80, 0.15), rgba(33, 150, 243, 0.15));
+  border-bottom: 1px solid var(--border-color);
+}
+
+.applet-tabs {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.applet-tab {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.25rem 0.75rem;
+  font-size: 0.75rem;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 0.25rem;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.applet-tab .tab-icon {
+  font-size: 0.7rem;
+  opacity: 0.8;
+}
+
+.applet-tab:hover {
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.applet-tab.active {
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+  border-color: var(--border-color);
+}
+
+.applet-tab.active .tab-icon {
+  color: #4caf50;
+}
+
+.applet-controls {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.applet-control-btn {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  font-size: 1rem;
+  font-weight: bold;
+  line-height: 1;
+  background: transparent;
+  border: 1px solid var(--border-color);
+  border-radius: 0.25rem;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.applet-control-btn:hover:not(:disabled) {
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.1);
+  border-color: var(--text-secondary);
+}
+
+.applet-control-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.applet-control-btn.restart {
+  color: #4caf50;
+}
+
+.applet-control-btn.restart:hover {
+  background: rgba(76, 175, 80, 0.2);
+  border-color: #4caf50;
+}
+
+.applet-control-btn.fullscreen {
+  margin-left: 0.5rem;
+}
+
+.applet-content {
+  position: relative;
+  width: 100%;
+  overflow: hidden;
+}
+
+.applet-iframe-wrapper {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #1a1a2e;
+}
+
+.applet-iframe {
+  width: 100%;
+  height: 100%;
+  border: none;
+  background: #1a1a2e;
+  display: block;
+}
+
+.applet-iframe:focus {
+  outline: 2px solid #4caf50;
+  outline-offset: -2px;
+}
+
+.applet-code {
+  margin: 0;
+  padding: 1rem;
+  height: 100%;
+  overflow: auto;
+  background: #1d1f21;
+  font-size: 0.85rem;
+  line-height: 1.5;
+  box-sizing: border-box;
+}
+
+.applet-code code {
+  background: none !important;
+  padding: 0 !important;
+  font-family: 'Fira Code', 'Consolas', monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* Applet Scrollbar */
+.applet-code::-webkit-scrollbar,
+.applet-iframe-wrapper::-webkit-scrollbar {
+  width: 8px;
+}
+
+.applet-code::-webkit-scrollbar-track,
+.applet-iframe-wrapper::-webkit-scrollbar-track {
+  background: var(--bg-primary);
+}
+
+.applet-code::-webkit-scrollbar-thumb,
+.applet-iframe-wrapper::-webkit-scrollbar-thumb {
+  background: var(--border-color);
+  border-radius: 4px;
+}
+
+.applet-code::-webkit-scrollbar-thumb:hover,
+.applet-iframe-wrapper::-webkit-scrollbar-thumb:hover {
+  background: var(--text-secondary);
+}
+
+/* Applet Modal (Fullscreen) */
+.applet-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 2rem;
+}
+
+.applet-modal {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 0.5rem;
+  width: 90vw;
+  height: 90vh;
+  min-width: 400px;
+  min-height: 300px;
+  max-width: 98vw;
+  max-height: 98vh;
+  display: flex;
+  flex-direction: column;
+  resize: both;
+  overflow: hidden;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+.applet-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1rem;
+  background: linear-gradient(135deg, rgba(76, 175, 80, 0.15), rgba(33, 150, 243, 0.15));
+  border-bottom: 1px solid var(--border-color);
+  flex-shrink: 0;
+}
+
+.applet-modal-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.applet-modal-close {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 1.5rem;
+  cursor: pointer;
+  border-radius: 0.25rem;
+  transition: all 0.2s ease;
+}
+
+.applet-modal-close:hover {
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.applet-modal-content {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  overflow: hidden;
+}
+
+.applet-modal-content .applet-iframe-wrapper {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #1a1a2e;
+}
+
+.applet-modal-content .applet-iframe {
+  width: 100%;
+  height: 100%;
+  border: none;
+  background: #1a1a2e;
+}
+
+.applet-modal-content .applet-code {
+  margin: 0;
+  padding: 1rem;
+  height: 100%;
+  overflow: auto;
+  background: #1d1f21;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  box-sizing: border-box;
+}
+
 /* Action Buttons */
 .message-buttons {
   display: flex;

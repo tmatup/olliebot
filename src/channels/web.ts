@@ -211,6 +211,44 @@ export class WebChannel implements Channel {
   }
 
   /**
+   * Update/revise an existing message in the chat
+   * This allows the agent to modify previously sent messages without sending new ones
+   */
+  updateMessage(
+    messageId: string,
+    updates: {
+      content?: string;
+      buttons?: ActionButton[];
+      html?: boolean;
+      agentName?: string;
+      agentEmoji?: string;
+    },
+    conversationId?: string
+  ): void {
+    const payload = {
+      type: 'message_update',
+      messageId,
+      ...updates,
+      conversationId,
+      timestamp: new Date().toISOString(),
+    };
+    this.broadcast(payload);
+  }
+
+  /**
+   * Delete a message from the chat
+   */
+  deleteMessage(messageId: string, conversationId?: string): void {
+    const payload = {
+      type: 'message_delete',
+      messageId,
+      conversationId,
+      timestamp: new Date().toISOString(),
+    };
+    this.broadcast(payload);
+  }
+
+  /**
    * Broadcast data to all connected clients
    */
   broadcast(data: unknown): void {
