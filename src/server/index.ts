@@ -9,6 +9,8 @@ import { isWellKnownConversation, getWellKnownConversationMeta } from '../db/wel
 import type { MCPClient } from '../mcp/index.js';
 import type { SkillManager } from '../skills/index.js';
 import type { ToolRunner } from '../tools/index.js';
+import type { LLMService } from '../llm/service.js';
+import { setupEvalRoutes } from './eval-routes.js';
 import type { BrowserSessionManager } from '../browser/index.js';
 import type { TaskManager } from '../tasks/index.js';
 
@@ -18,6 +20,7 @@ export interface ServerConfig {
   mcpClient?: MCPClient;
   skillManager?: SkillManager;
   toolRunner?: ToolRunner;
+  llmService?: LLMService;
   browserManager?: BrowserSessionManager;
   taskManager?: TaskManager;
 }
@@ -32,6 +35,7 @@ export class OllieBotServer {
   private mcpClient?: MCPClient;
   private skillManager?: SkillManager;
   private toolRunner?: ToolRunner;
+  private llmService?: LLMService;
   private browserManager?: BrowserSessionManager;
   private taskManager?: TaskManager;
 
@@ -41,6 +45,7 @@ export class OllieBotServer {
     this.mcpClient = config.mcpClient;
     this.skillManager = config.skillManager;
     this.toolRunner = config.toolRunner;
+    this.llmService = config.llmService;
     this.browserManager = config.browserManager;
     this.taskManager = config.taskManager;
 
@@ -489,6 +494,16 @@ export class OllieBotServer {
         res.status(500).json({ error: 'Failed to run task' });
       }
     });
+
+    // Setup evaluation routes (if llmService and toolRunner are available)
+    if (this.llmService && this.toolRunner) {
+      setupEvalRoutes(this.app, {
+        llmService: this.llmService,
+        toolRunner: this.toolRunner,
+        webChannel: this.webChannel,
+      });
+      console.log('[Server] Evaluation routes enabled');
+    }
   }
 
   async start(): Promise<void> {

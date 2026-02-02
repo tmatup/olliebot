@@ -487,6 +487,7 @@ async function main(): Promise<void> {
       mcpClient,
       skillManager,
       toolRunner,
+      llmService,
       browserManager,
       taskManager,
     });

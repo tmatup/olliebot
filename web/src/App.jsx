@@ -7,6 +7,13 @@ import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { useWebSocket } from './hooks/useWebSocket';
 import HtmlPreview from './components/HtmlPreview';
+import { EvalSidebar, EvalRunner } from './components/eval';
+
+// Mode constants
+const MODES = {
+  CHAT: 'chat',
+  EVAL: 'eval',
+};
 import { BrowserSessions } from './components/BrowserSessions';
 import { BrowserPreview } from './components/BrowserPreview';
 
@@ -101,6 +108,14 @@ function App() {
   // Expanded tool events
   const [expandedTools, setExpandedTools] = useState(new Set());
 
+  // Mode state (chat or eval)
+  const [mode, setMode] = useState(MODES.CHAT);
+
+  // Eval mode state
+  const [selectedEvaluation, setSelectedEvaluation] = useState(null);
+  const [selectedSuite, setSelectedSuite] = useState(null);
+  const [selectedResult, setSelectedResult] = useState(null);
+  const [viewingResults, setViewingResults] = useState(null);
   // Response pending state (disable input while waiting)
   const [isResponsePending, setIsResponsePending] = useState(false);
 
@@ -1178,7 +1193,42 @@ function App() {
           </button>
         </div>
 
-        {sidebarOpen && (
+        {sidebarOpen && mode === MODES.EVAL && (
+          <EvalSidebar
+            onSelectEvaluation={(evaluation) => {
+              setSelectedEvaluation(evaluation);
+              setSelectedSuite(null);
+              setSelectedResult(null);
+              setViewingResults(null);
+            }}
+            onSelectSuite={(suite) => {
+              setSelectedSuite(suite);
+              setSelectedEvaluation(null);
+              setSelectedResult(null);
+              setViewingResults(null);
+            }}
+            onSelectResult={async (resultInfo) => {
+              setSelectedResult(resultInfo);
+              setSelectedEvaluation(null);
+              setSelectedSuite(null);
+              // Fetch full result data
+              try {
+                const res = await fetch(`/api/eval/result/${encodeURIComponent(resultInfo.filePath)}`);
+                if (res.ok) {
+                  const data = await res.json();
+                  setViewingResults(data.result);
+                }
+              } catch (err) {
+                console.error('Failed to load result:', err);
+              }
+            }}
+            selectedEvaluation={selectedEvaluation}
+            selectedSuite={selectedSuite}
+            selectedResult={selectedResult}
+          />
+        )}
+
+        {sidebarOpen && mode === MODES.CHAT && (
           <>
           <div className="conversation-list">
             <div className="conversation-list-header">History</div>
@@ -1505,12 +1555,49 @@ function App() {
               <span className="logo-icon">🐙</span>
               <h1>OllieBot</h1>
             </div>
+            {/* Mode Switcher */}
+            <div className="mode-switcher">
+              <button
+                className={`mode-btn ${mode === MODES.CHAT ? 'active' : ''}`}
+                onClick={() => setMode(MODES.CHAT)}
+              >
+                <span className="mode-icon">💬</span>
+                Chat
+              </button>
+              <button
+                className={`mode-btn ${mode === MODES.EVAL ? 'active' : ''}`}
+                onClick={() => setMode(MODES.EVAL)}
+              >
+                <span className="mode-icon">📊</span>
+                Eval
+              </button>
+            </div>
           </div>
           <div className={`status ${isConnected ? 'connected' : 'disconnected'}`}>
             {isConnected ? 'Connected' : 'Disconnected'}
           </div>
         </header>
 
+        {/* Eval Mode Content */}
+        {mode === MODES.EVAL && (
+          <main className="eval-container">
+            <EvalRunner
+              evaluation={selectedEvaluation}
+              suite={selectedSuite}
+              viewingResults={viewingResults}
+              onBack={() => {
+                setSelectedEvaluation(null);
+                setSelectedSuite(null);
+                setSelectedResult(null);
+                setViewingResults(null);
+              }}
+            />
+          </main>
+        )}
+
+        {/* Chat Mode Content */}
+        {mode === MODES.CHAT && (
+        <>
         <main className="chat-container">
           <div className="messages" ref={messagesContainerRef} onScroll={handleScroll} onWheel={handleWheel}>
           {messages.length === 0 && (
@@ -1793,6 +1880,8 @@ function App() {
             </button>
           </form>
         </footer>
+        </>
+        )}
       </div>
     </div>
   );
