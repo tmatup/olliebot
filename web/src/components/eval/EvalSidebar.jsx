@@ -127,6 +127,7 @@ export function EvalSidebar({
         </button>
       </div>
 
+      <div className="eval-sidebar-content">
       {/* Evaluations Tree Section */}
       <div className="eval-section">
         <div
@@ -231,6 +232,7 @@ export function EvalSidebar({
             )}
           </div>
         )}
+      </div>
       </div>
     </div>
   );

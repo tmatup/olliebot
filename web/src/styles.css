@@ -1075,9 +1075,16 @@ html, body {
   overflow: hidden;
 }
 
-.html-preview-iframe {
+.html-preview-iframe-wrapper {
   width: 100%;
   height: 100%;
+  overflow: auto;
+  background: #fff;
+}
+
+.html-preview-iframe {
+  width: 100%;
+  min-height: 100%;
   border: none;
   background: #fff;
   display: block;
@@ -1100,6 +1107,127 @@ html, body {
   font-family: 'Fira Code', 'Consolas', monospace;
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+/* HTML Preview Scrollbar - matches main chat style */
+.html-preview-code::-webkit-scrollbar,
+.html-preview-iframe-wrapper::-webkit-scrollbar {
+  width: 8px;
+}
+
+.html-preview-code::-webkit-scrollbar-track,
+.html-preview-iframe-wrapper::-webkit-scrollbar-track {
+  background: var(--bg-primary);
+}
+
+.html-preview-code::-webkit-scrollbar-thumb,
+.html-preview-iframe-wrapper::-webkit-scrollbar-thumb {
+  background: var(--border-color);
+  border-radius: 4px;
+}
+
+.html-preview-code::-webkit-scrollbar-thumb:hover,
+.html-preview-iframe-wrapper::-webkit-scrollbar-thumb:hover {
+  background: var(--text-secondary);
+}
+
+/* HTML Preview Fullscreen Button */
+.html-preview-fullscreen-btn {
+  margin-left: 0.5rem;
+}
+
+/* HTML Preview Modal */
+.html-preview-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.75);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 2rem;
+}
+
+.html-preview-modal {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 0.5rem;
+  width: 80vw;
+  height: 80vh;
+  min-width: 400px;
+  min-height: 300px;
+  max-width: 95vw;
+  max-height: 95vh;
+  display: flex;
+  flex-direction: column;
+  resize: both;
+  overflow: hidden;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+}
+
+.html-preview-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1rem;
+  background: var(--bg-tertiary);
+  border-bottom: 1px solid var(--border-color);
+  flex-shrink: 0;
+}
+
+.html-preview-modal-close {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 1.5rem;
+  cursor: pointer;
+  border-radius: 0.25rem;
+  transition: all 0.2s ease;
+}
+
+.html-preview-modal-close:hover {
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.html-preview-modal-content {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  overflow: hidden;
+}
+
+.html-preview-modal-content .html-preview-iframe-wrapper {
+  width: 100%;
+  height: 100%;
+  overflow: auto;
+  background: #fff;
+}
+
+.html-preview-modal-content .html-preview-iframe {
+  width: 100%;
+  min-height: 100%;
+  border: none;
+  background: #fff;
+}
+
+.html-preview-modal-content .html-preview-code {
+  margin: 0;
+  padding: 1rem;
+  height: 100%;
+  overflow: auto;
+  background: #1d1f21;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  box-sizing: border-box;
 }
 
 /* Action Buttons */
@@ -2008,6 +2136,30 @@ html, body {
   flex-direction: column;
   height: 100%;
   overflow: hidden;
+}
+
+.eval-sidebar-content {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+/* Eval sidebar scrollbar - matches sidebar style */
+.eval-sidebar-content::-webkit-scrollbar {
+  width: 6px;
+}
+
+.eval-sidebar-content::-webkit-scrollbar-track {
+  background: var(--bg-secondary);
+}
+
+.eval-sidebar-content::-webkit-scrollbar-thumb {
+  background: var(--border-color);
+  border-radius: 3px;
+}
+
+.eval-sidebar-content::-webkit-scrollbar-thumb:hover {
+  background: var(--text-secondary);
 }
 
 .eval-sidebar-header {

@@ -1,2 +1,5 @@
-
-add ability to investigate Jarvis issue using combination of AI, description, file upload (screenshot) and diagnostic log -> is this a skill? Maybe prototype the Skill to run well in Claude Code, then have it run here?
+- FE (channel) - BE security.
+- A2A
+- Hook / Guardrail - before / post LLM, before / post tool use
+- Idea of agent generated in-chat applet (game of life), tetris
+- add ability to investigate Jarvis issue using combination of AI, description, file upload (screenshot) and diagnostic log -> is this a skill? Maybe prototype the Skill to run well in Claude Code, then have it run here?

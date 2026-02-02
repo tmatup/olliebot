@@ -1041,7 +1041,7 @@ function App() {
   };
 
   // Render markdown with inline HTML support
-  const renderContent = (content, html = false) => {
+  const renderContent = (content, html = false, isStreaming = false) => {
     return (
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
@@ -1063,7 +1063,7 @@ function App() {
 
               // Check if this is HTML content - render with HtmlPreview
               if (language === 'html' || language === 'htm') {
-                return <HtmlPreview html={codeContent} />;
+                return <HtmlPreview html={codeContent} isStreaming={isStreaming} />;
               }
 
               // Use CodeBlock component with copy button
@@ -1685,7 +1685,7 @@ function App() {
                 {msg.agentName && msg.role === 'assistant' && (
                   <div className="agent-name">{msg.agentName}</div>
                 )}
-                {renderContent(msg.content, msg.html)}
+                {renderContent(msg.content, msg.html, msg.isStreaming)}
                 {msg.attachments && msg.attachments.length > 0 && (
                   <div className="message-attachments">
                     {msg.attachments.map((att, index) => (
