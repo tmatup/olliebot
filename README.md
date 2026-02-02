@@ -13,10 +13,10 @@ Why create this when "XYZ" exists (XYZ = whatever is trending this week)?
 - **Git Versioning**: All config changes tracked in local git
 - **Built-in Tools**: Web search, Wikipedia search, web scraping, image analysis, image generation, etc.
 - **User-Defined Tools**: Write tool specs in natural language in `.md`, auto-generate `.js` and execute in sandboxed VM 
+- **Browser Automation**: Computer Use models for visual browser automation with live preview. This feature is fairly limited to the ability of the underlying model - which is not great.
 
 ## Experimantal Features (not well tested)
 
-- **Browser Automation**: Computer Use models for visual browser automation with live preview
 - **Multi-Channel Communication**: Web UI, Console CLI, Microsoft Teams
 - **A2UI Human-in-the-Loop**: Request user input during automated workflows
 - **RAG System**: Automatic chunking and retrieval for large documents

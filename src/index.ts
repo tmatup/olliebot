@@ -1,6 +1,6 @@
 import 'dotenv/config';
 import { join } from 'path';
-import { initDb, closeDb } from './db/index.js';
+import { initDb, closeDb, getDb } from './db/index.js';
 import { ensureWellKnownConversations, WellKnownConversations } from './db/well-known-conversations.js';
 import { SupervisorAgentImpl, getAgentRegistry } from './agents/index.js';
 import {
@@ -476,8 +476,135 @@ async function main(): Promise<void> {
     // Console mode - CLI interface
     console.log('[Init] Starting in console mode...');
     const consoleChannel = new ConsoleChannel();
+
+    // Wire up conversation provider for console commands
+    consoleChannel.setConversationProvider({
+      listConversations: (limit = 20) => {
+        const db = getDb();
+        return db.conversations.findAll({ limit });
+      },
+      getMessages: (conversationId: string, limit = 10) => {
+        const db = getDb();
+        const messages = db.messages.findByConversationId(conversationId, { limit: 100 });
+        // Return last N messages (findByConversationId returns oldest first)
+        return messages.slice(-limit).map(m => ({
+          id: m.id,
+          role: m.role,
+          content: m.content,
+          createdAt: m.createdAt,
+        }));
+      },
+      getCurrentConversationId: () => supervisor.getCurrentConversationId(),
+      setConversationId: (id) => supervisor.setConversationId(id),
+      startNewConversation: () => supervisor.startNewConversation(),
+    });
+
+    // Wire up system provider for tasks, tools, MCP
+    consoleChannel.setSystemProvider({
+      getTasks: () => {
+        const db = getDb();
+        const tasks = db.tasks.findAll({ limit: 20 });
+        return tasks.map(t => {
+          const config = t.jsonConfig as { description?: string; trigger?: { schedule?: string } };
+          return {
+            id: t.id,
+            name: t.name,
+            description: config.description || '',
+            schedule: config.trigger?.schedule || null,
+            status: t.status,
+            lastRun: t.lastRun,
+            nextRun: t.nextRun,
+          };
+        });
+      },
+      getTools: () => {
+        const tools = toolRunner.getToolsForLLM();
+        const mcpServers = mcpClient?.getServers() || [];
+        const serverNames: Record<string, string> = {};
+        for (const server of mcpServers) {
+          serverNames[server.id] = server.name;
+        }
+
+        const builtin: Array<{ name: string; description: string }> = [];
+        const user: Array<{ name: string; description: string }> = [];
+        const mcp: Record<string, Array<{ name: string; description: string }>> = {};
+
+        for (const tool of tools) {
+          const toolName = tool.name;
+          if (toolName.startsWith('user__')) {
+            user.push({
+              name: toolName.replace('user__', ''),
+              description: tool.description,
+            });
+          } else if (toolName.startsWith('native__')) {
+            builtin.push({
+              name: toolName.replace('native__', ''),
+              description: tool.description,
+            });
+          } else if (toolName.includes('__')) {
+            const [serverId, ...rest] = toolName.split('__');
+            const mcpToolName = rest.join('__');
+            const serverName = serverNames[serverId] || serverId;
+            if (!mcp[serverName]) {
+              mcp[serverName] = [];
+            }
+            mcp[serverName].push({
+              name: mcpToolName,
+              description: tool.description,
+            });
+          }
+        }
+        return { builtin, user, mcp };
+      },
+      getMcpServers: () => {
+        if (!mcpClient) return [];
+        const servers = mcpClient.getServers();
+        const tools = mcpClient.getTools();
+        return servers.map(server => ({
+          id: server.id,
+          name: server.name,
+          enabled: server.enabled,
+          transport: server.transport || (server.command ? 'stdio' : 'http'),
+          toolCount: tools.filter(t => t.serverId === server.id).length,
+        }));
+      },
+    });
+
     await consoleChannel.init();
     supervisor.registerChannel(consoleChannel);
+
+    // Listen for scheduled tasks in console mode too
+    taskManager.on('task:due', async ({ task }) => {
+      console.log(`\n[Scheduler] Running scheduled task: ${task.name}`);
+      try {
+        const taskDescription = (task.jsonConfig as { description?: string }).description || '';
+
+        // Create a task message for the supervisor
+        const taskMessage = {
+          id: crypto.randomUUID(),
+          channel: consoleChannel.id,
+          role: 'user' as const,
+          content: `[Scheduled Task] Run the "${task.name}" task now. Here is the task configuration:\n\n${JSON.stringify(task.jsonConfig, null, 2)}`,
+          createdAt: new Date(),
+          metadata: {
+            type: 'task_run',
+            taskId: task.id,
+            taskName: task.name,
+            taskDescription,
+            scheduled: true,
+            conversationId: WellKnownConversations.FEED,
+          },
+        };
+
+        taskManager.markTaskExecuted(task.id);
+        await supervisor.handleMessage(taskMessage);
+      } catch (error) {
+        console.error(`[Scheduler] Error running scheduled task "${task.name}":`, error);
+      }
+    });
+
+    // Start the task scheduler
+    taskManager.startScheduler();
   } else {
     // Server mode - HTTP + WebSocket
     console.log('[Init] Starting in server mode...');

@@ -8,6 +8,7 @@
   ],
   "scripts": {
     "dev:server": "tsx watch --inspect --clear-screen=false --include .env src/index.ts",
+    "dev:console": "tsx src/index.ts console",
     "dev:web": "npm run dev -w web",
     "build": "npm run build:server && npm run build:web",
     "build:server": "tsc",

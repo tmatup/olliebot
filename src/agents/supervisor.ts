@@ -674,6 +674,11 @@ export class SupervisorAgentImpl extends AbstractAgent implements ISupervisorAge
     }
   }
 
+  // Get the current conversation ID
+  getCurrentConversationId(): string | null {
+    return this.currentConversationId;
+  }
+
   private saveMessage(message: Message): void {
     try {
       const db = getDb();
