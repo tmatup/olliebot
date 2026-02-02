@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { EvalResults } from './EvalResults';
+import { EvalJsonEditor } from './EvalJsonEditor';
 
-export function EvalRunner({ evaluation, suite, onBack }) {
+export function EvalRunner({ evaluation, suite, viewingResults, onBack }) {
   const [loading, setLoading] = useState(false);
   const [evalDetails, setEvalDetails] = useState(null);
   const [runConfig, setRunConfig] = useState({
@@ -20,30 +21,58 @@ export function EvalRunner({ evaluation, suite, onBack }) {
     jobIdRef.current = jobId;
   }, [jobId]);
 
+  // Clear results when selection changes (allows navigation after viewing results)
+  useEffect(() => {
+    setResults(null);
+    setError(null);
+    setProgress(null);
+    setLoading(false);
+    setJobId(null);
+    jobIdRef.current = null;
+  }, [evaluation, suite, viewingResults]);
+
   // Set up WebSocket listener for eval events
   useEffect(() => {
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}`;
+    // Use the same backend URL as the main WebSocket connection
+    const wsUrl = import.meta.env.VITE_WS_URL || 'ws://localhost:3000';
 
+    console.log('[EvalRunner] Connecting WebSocket to:', wsUrl);
     const ws = new WebSocket(wsUrl);
     wsRef.current = ws;
+
+    ws.onopen = () => {
+      console.log('[EvalRunner] WebSocket connected');
+    };
 
     ws.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
 
-        // Only process events for our current job
-        if (data.jobId && jobIdRef.current && data.jobId === jobIdRef.current) {
-          if (data.type === 'eval_progress') {
-            setProgress({ current: data.current, total: data.total });
-          } else if (data.type === 'eval_complete') {
-            setResults(data.results);
-            setProgress(null);
-            setLoading(false);
-          } else if (data.type === 'eval_error') {
-            setError(data.error || 'Evaluation failed');
-            setProgress(null);
-            setLoading(false);
+        // Debug: log all eval-related events
+        if (data.type?.startsWith('eval_')) {
+          console.log('[EvalRunner] WebSocket event:', data.type, 'jobId:', data.jobId, 'current jobId:', jobIdRef.current);
+        }
+
+        // Process events for our current job OR if we're waiting for any job to start
+        if (data.type?.startsWith('eval_') && data.jobId) {
+          // If we don't have a jobId yet but we're loading, accept the first matching event
+          const isOurJob = jobIdRef.current && data.jobId === jobIdRef.current;
+
+          if (isOurJob) {
+            if (data.type === 'eval_progress') {
+              console.log('[EvalRunner] Updating progress:', data.current, '/', data.total);
+              setProgress({ current: data.current, total: data.total });
+            } else if (data.type === 'eval_complete') {
+              console.log('[EvalRunner] Evaluation complete');
+              setResults(data.results);
+              setProgress(null);
+              setLoading(false);
+            } else if (data.type === 'eval_error') {
+              console.log('[EvalRunner] Evaluation error:', data.error);
+              setError(data.error || 'Evaluation failed');
+              setProgress(null);
+              setLoading(false);
+            }
           }
         }
       } catch (err) {
@@ -125,6 +154,9 @@ export function EvalRunner({ evaluation, suite, onBack }) {
 
       if (res.ok) {
         const data = await res.json();
+        console.log('[EvalRunner] Started evaluation with jobId:', data.jobId);
+        // Set ref immediately so WebSocket handler can use it right away
+        jobIdRef.current = data.jobId;
         setJobId(data.jobId);
       } else {
         throw new Error('Failed to start evaluation');
@@ -147,12 +179,15 @@ export function EvalRunner({ evaluation, suite, onBack }) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          suitePath: suite.path,
+          suitePath: suite.suitePath,
         }),
       });
 
       if (res.ok) {
         const data = await res.json();
+        console.log('[EvalRunner] Started suite with jobId:', data.jobId);
+        // Set ref immediately so WebSocket handler can use it right away
+        jobIdRef.current = data.jobId;
         setJobId(data.jobId);
       } else {
         throw new Error('Failed to start suite');
@@ -163,7 +198,12 @@ export function EvalRunner({ evaluation, suite, onBack }) {
     }
   };
 
-  // Show results if available
+  // Handle save from JSON editor
+  const handleSave = (updatedEval) => {
+    setEvalDetails(updatedEval);
+  };
+
+  // Show results if available (from a fresh run)
   if (results) {
     return (
       <EvalResults
@@ -172,6 +212,16 @@ export function EvalRunner({ evaluation, suite, onBack }) {
           setResults(null);
           setJobId(null);
         }}
+      />
+    );
+  }
+
+  // Show past results if viewing from sidebar
+  if (viewingResults) {
+    return (
+      <EvalResults
+        results={viewingResults}
+        onClose={onBack}
       />
     );
   }
@@ -189,7 +239,7 @@ export function EvalRunner({ evaluation, suite, onBack }) {
           <div className="eval-info-card">
             <p className="eval-description">{suite.description}</p>
             <div className="eval-meta">
-              <span>Evaluations: {suite.evaluationCount}</span>
+              <span>Evaluations: {suite.evaluations?.length || 0}</span>
             </div>
           </div>
 
@@ -227,86 +277,17 @@ export function EvalRunner({ evaluation, suite, onBack }) {
     );
   }
 
-  // Show evaluation view
+  // Show evaluation view with JSON editor
   if (evaluation) {
     return (
       <div className="eval-runner">
-        <div className="eval-runner-header">
-          <button className="back-btn" onClick={onBack}>← Back</button>
-          <h2>{evaluation.name}</h2>
-        </div>
-
-        <div className="eval-runner-content">
-          <div className="eval-info-card">
-            <p className="eval-description">{evaluation.description}</p>
-            <div className="eval-meta">
-              <span className="eval-target">Target: {evaluation.target}</span>
-              <span className="eval-tags">
-                {evaluation.tags.map(tag => (
-                  <span key={tag} className="eval-tag">{tag}</span>
-                ))}
-              </span>
-            </div>
-          </div>
-
-          {evalDetails && (
-            <>
-              <div className="eval-section-card">
-                <h3>Test Case</h3>
-                <div className="test-case-prompt">
-                  <strong>User Prompt:</strong>
-                  <p>{evalDetails.testCase.userPrompt}</p>
-                </div>
-              </div>
-
-              <div className="eval-section-card">
-                <h3>Expected Tools</h3>
-                <div className="expected-tools">
-                  {evalDetails.toolExpectations?.expectedTools?.map((tool, i) => (
-                    <div key={i} className="tool-expectation">
-                      <span className={`tool-badge ${tool.required ? 'required' : 'optional'}`}>
-                        {tool.required ? '✓' : '○'} {tool.name}
-                      </span>
-                    </div>
-                  ))}
-                  {evalDetails.toolExpectations?.forbiddenTools?.length > 0 && (
-                    <div className="forbidden-tools">
-                      <span className="forbidden-label">Forbidden:</span>
-                      {evalDetails.toolExpectations.forbiddenTools.map((tool, i) => (
-                        <span key={i} className="tool-badge forbidden">✗ {tool}</span>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              <div className="eval-section-card">
-                <h3>Response Expectations</h3>
-                <div className="response-expectations">
-                  <h4>Required Elements</h4>
-                  {evalDetails.responseExpectations?.requiredElements?.map((el, i) => (
-                    <div key={i} className="expectation-item">
-                      <span className="expectation-id">{el.id}</span>
-                      <span className="expectation-desc">{el.description}</span>
-                      <span className="expectation-weight">weight: {el.weight}</span>
-                    </div>
-                  ))}
-                  {evalDetails.responseExpectations?.optionalElements?.length > 0 && (
-                    <>
-                      <h4>Optional Elements</h4>
-                      {evalDetails.responseExpectations.optionalElements.map((el, i) => (
-                        <div key={i} className="expectation-item optional">
-                          <span className="expectation-id">{el.id}</span>
-                          <span className="expectation-desc">{el.description}</span>
-                          <span className="expectation-weight">weight: {el.weight}</span>
-                        </div>
-                      ))}
-                    </>
-                  )}
-                </div>
-              </div>
-            </>
-          )}
+        <div className="eval-runner-content eval-runner-content-full">
+          {/* JSON Editor */}
+          <EvalJsonEditor
+            evaluation={evaluation}
+            evalDetails={evalDetails}
+            onSave={handleSave}
+          />
 
           {error && (
             <div className="eval-error">

@@ -3,28 +3,19 @@ import { useState, useEffect } from 'react';
 export function EvalSidebar({
   onSelectEvaluation,
   onSelectSuite,
+  onSelectResult,
   selectedEvaluation,
   selectedSuite,
+  selectedResult,
 }) {
-  const [evaluations, setEvaluations] = useState([]);
   const [suites, setSuites] = useState([]);
   const [recentResults, setRecentResults] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [expandedSuites, setExpandedSuites] = useState({});
   const [expandedSections, setExpandedSections] = useState({
     evaluations: true,
-    suites: true,
     results: false,
   });
-
-  // Group evaluations by target type
-  const groupedEvaluations = evaluations.reduce((acc, evaluation) => {
-    const target = evaluation.target.startsWith('sub-agent:')
-      ? 'sub-agents'
-      : evaluation.target;
-    if (!acc[target]) acc[target] = [];
-    acc[target].push(evaluation);
-    return acc;
-  }, {});
 
   useEffect(() => {
     loadData();
@@ -33,19 +24,23 @@ export function EvalSidebar({
   const loadData = async () => {
     setLoading(true);
     try {
-      const [evalsRes, suitesRes] = await Promise.all([
-        fetch('/api/eval/list'),
+      const [suitesRes, resultsRes] = await Promise.all([
         fetch('/api/eval/suites'),
+        fetch('/api/eval/results?limit=10'),
       ]);
-
-      if (evalsRes.ok) {
-        const data = await evalsRes.json();
-        setEvaluations(data.evaluations || []);
-      }
 
       if (suitesRes.ok) {
         const data = await suitesRes.json();
         setSuites(data.suites || []);
+        // Auto-expand first suite if none expanded
+        if (data.suites?.length > 0 && Object.keys(expandedSuites).length === 0) {
+          setExpandedSuites({ [data.suites[0].id]: true });
+        }
+      }
+
+      if (resultsRes.ok) {
+        const data = await resultsRes.json();
+        setRecentResults(data.results || []);
       }
     } catch (error) {
       console.error('Failed to load evaluations:', error);
@@ -60,6 +55,57 @@ export function EvalSidebar({
       [section]: !prev[section],
     }));
   };
+
+  const toggleSuite = (suiteId) => {
+    setExpandedSuites(prev => ({
+      ...prev,
+      [suiteId]: !prev[suiteId],
+    }));
+  };
+
+  const handleSuiteClick = (suite, e) => {
+    // If clicking the expand icon, just toggle
+    if (e.target.classList.contains('suite-expand-icon')) {
+      toggleSuite(suite.id);
+      return;
+    }
+    // Otherwise select the suite and expand it
+    onSelectSuite(suite);
+    setExpandedSuites(prev => ({
+      ...prev,
+      [suite.id]: true,
+    }));
+  };
+
+  const handleDeleteResult = async (result, e) => {
+    e.stopPropagation();
+
+    if (!confirm(`Delete result for "${result.evaluationName}"?`)) {
+      return;
+    }
+
+    try {
+      const res = await fetch(`/api/eval/result/${encodeURIComponent(result.filePath)}`, {
+        method: 'DELETE',
+      });
+
+      if (res.ok) {
+        // Remove from local state
+        setRecentResults(prev => prev.filter(r => r.filePath !== result.filePath));
+        // Clear selection if this was the selected result
+        if (selectedResult?.filePath === result.filePath) {
+          onSelectResult?.(null);
+        }
+      } else {
+        console.error('Failed to delete result');
+      }
+    } catch (error) {
+      console.error('Failed to delete result:', error);
+    }
+  };
+
+  // Count total evaluations across all suites
+  const totalEvaluations = suites.reduce((sum, suite) => sum + (suite.evaluations?.length || 0), 0);
 
   if (loading) {
     return (
@@ -81,70 +127,61 @@ export function EvalSidebar({
         </button>
       </div>
 
-      {/* Evaluations Section */}
+      {/* Evaluations Tree Section */}
       <div className="eval-section">
         <div
           className="eval-section-header"
           onClick={() => toggleSection('evaluations')}
         >
           <span className="expand-icon">{expandedSections.evaluations ? '▼' : '▶'}</span>
-          <span>Evaluations ({evaluations.length})</span>
+          <span>Evaluations ({totalEvaluations})</span>
         </div>
 
         {expandedSections.evaluations && (
-          <div className="eval-section-content">
-            {Object.entries(groupedEvaluations).map(([target, evals]) => (
-              <div key={target} className="eval-group">
-                <div className="eval-group-header">
-                  {target === 'supervisor' ? '🤖 Supervisor' :
-                   target === 'sub-agents' ? '👥 Sub-Agents' :
-                   target === 'tool-generator' ? '🔧 Tool Generator' : target}
-                </div>
-                {evals.map(evaluation => (
-                  <div
-                    key={evaluation.id}
-                    className={`eval-item ${selectedEvaluation?.id === evaluation.id ? 'selected' : ''}`}
-                    onClick={() => onSelectEvaluation(evaluation)}
-                  >
-                    <span className="eval-item-name">{evaluation.name}</span>
-                    <span className="eval-item-tags">
-                      {evaluation.tags.slice(0, 2).map(tag => (
-                        <span key={tag} className="eval-tag">{tag}</span>
-                      ))}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            ))}
-            {evaluations.length === 0 && (
-              <div className="eval-empty">No evaluations found</div>
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* Suites Section */}
-      <div className="eval-section">
-        <div
-          className="eval-section-header"
-          onClick={() => toggleSection('suites')}
-        >
-          <span className="expand-icon">{expandedSections.suites ? '▼' : '▶'}</span>
-          <span>Suites ({suites.length})</span>
-        </div>
-
-        {expandedSections.suites && (
-          <div className="eval-section-content">
+          <div className="eval-section-content eval-tree">
             {suites.map(suite => (
-              <div
-                key={suite.id}
-                className={`eval-item suite-item ${selectedSuite?.id === suite.id ? 'selected' : ''}`}
-                onClick={() => onSelectSuite(suite)}
-              >
-                <span className="eval-item-name">📦 {suite.name}</span>
-                <span className="eval-item-count">{suite.evaluationCount} evals</span>
+              <div key={suite.id} className="eval-tree-suite">
+                {/* Suite header (expandable root node) */}
+                <div
+                  className={`eval-tree-suite-header ${selectedSuite?.id === suite.id ? 'selected' : ''}`}
+                  onClick={(e) => handleSuiteClick(suite, e)}
+                >
+                  <span
+                    className="suite-expand-icon"
+                    onClick={(e) => { e.stopPropagation(); toggleSuite(suite.id); }}
+                  >
+                    {expandedSuites[suite.id] ? '▼' : '▶'}
+                  </span>
+                  <span className="suite-icon">📦</span>
+                  <span className="suite-name">{suite.name}</span>
+                  <span className="suite-count">{suite.evaluations?.length || 0}</span>
+                </div>
+
+                {/* Evaluations (leaf nodes) */}
+                {expandedSuites[suite.id] && suite.evaluations?.length > 0 && (
+                  <div className="eval-tree-evaluations">
+                    {suite.evaluations.map(evaluation => (
+                      <div
+                        key={evaluation.id}
+                        className={`eval-tree-item ${selectedEvaluation?.id === evaluation.id ? 'selected' : ''}`}
+                        onClick={() => onSelectEvaluation(evaluation)}
+                      >
+                        <span className="eval-tree-item-icon">📄</span>
+                        <span className="eval-tree-item-name">
+                          {evaluation.name}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Empty state for suite with no evaluations */}
+                {expandedSuites[suite.id] && (!suite.evaluations || suite.evaluations.length === 0) && (
+                  <div className="eval-tree-empty">No evaluations in this suite</div>
+                )}
               </div>
             ))}
+
             {suites.length === 0 && (
               <div className="eval-empty">No suites found</div>
             )}
@@ -159,11 +196,36 @@ export function EvalSidebar({
           onClick={() => toggleSection('results')}
         >
           <span className="expand-icon">{expandedSections.results ? '▼' : '▶'}</span>
-          <span>Recent Results</span>
+          <span>Recent Results ({recentResults.length})</span>
         </div>
 
         {expandedSections.results && (
           <div className="eval-section-content">
+            {recentResults.map((result, idx) => (
+              <div
+                key={idx}
+                className={`eval-result-item ${selectedResult?.filePath === result.filePath ? 'selected' : ''}`}
+                onClick={() => onSelectResult?.(result)}
+              >
+                <span className="result-name">{result.evaluationName}</span>
+                <span className="result-score" style={{
+                  color: result.overallScore >= 0.8 ? 'var(--success)' :
+                         result.overallScore >= 0.5 ? 'var(--warning)' : 'var(--error)'
+                }}>
+                  {(result.overallScore * 100).toFixed(0)}%
+                </span>
+                <span className="result-date">
+                  {new Date(result.timestamp).toLocaleDateString()}
+                </span>
+                <button
+                  className="result-delete-btn"
+                  onClick={(e) => handleDeleteResult(result, e)}
+                  title="Delete result"
+                >
+                  ×
+                </button>
+              </div>
+            ))}
             {recentResults.length === 0 && (
               <div className="eval-empty">No recent results</div>
             )}

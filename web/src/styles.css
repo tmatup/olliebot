@@ -9,6 +9,17 @@
   --border-color: #333;
   --sidebar-width: 280px;
   --sidebar-collapsed-width: 52px;
+
+  /* Status colors */
+  --success: #4caf50;
+  --warning: #ff9800;
+  --error: #f44336;
+
+  /* Danger styling for destructive actions */
+  --danger: #dc3545;
+  --danger-hover: #c82333;
+  --danger-bg: rgba(220, 53, 69, 0.15);
+  --danger-bg-hover: rgba(220, 53, 69, 0.9);
 }
 
 /* Main App Layout */
@@ -1384,6 +1395,29 @@ html, body {
   font-family: 'Fira Code', 'Consolas', 'Monaco', monospace !important;
 }
 
+/* Code block scrollbar - matches chat container */
+.code-block-highlighted::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.code-block-highlighted::-webkit-scrollbar-track {
+  background: #282c34;
+}
+
+.code-block-highlighted::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+}
+
+.code-block-highlighted::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.code-block-highlighted::-webkit-scrollbar-corner {
+  background: #282c34;
+}
+
 .inline-code {
   display: inline;
   background: rgba(0, 0, 0, 0.3);
@@ -2102,6 +2136,493 @@ html, body {
   font-size: 0.8125rem;
   color: var(--text-secondary);
   font-style: italic;
+}
+
+/* ========================================
+   EVALUATION TREE VIEW
+   ======================================== */
+
+.eval-tree {
+  padding: 0.5rem 0;
+}
+
+.eval-tree-suite {
+  margin-bottom: 0.25rem;
+}
+
+.eval-tree-suite-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  cursor: pointer;
+  transition: background 0.2s ease;
+  border-radius: 0.25rem;
+  margin: 0 0.5rem;
+}
+
+.eval-tree-suite-header:hover {
+  background: var(--bg-tertiary);
+}
+
+.eval-tree-suite-header.selected {
+  background: var(--bg-tertiary);
+  border-left: 3px solid var(--accent);
+  margin-left: calc(0.5rem - 3px);
+  padding-left: calc(0.75rem + 3px);
+}
+
+.suite-expand-icon {
+  font-size: 0.625rem;
+  color: var(--text-secondary);
+  width: 1rem;
+  text-align: center;
+  cursor: pointer;
+  padding: 0.25rem;
+}
+
+.suite-expand-icon:hover {
+  color: var(--text-primary);
+}
+
+.suite-icon {
+  font-size: 0.875rem;
+}
+
+.suite-name {
+  flex: 1;
+  font-size: 0.875rem;
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.suite-count {
+  font-size: 0.6875rem;
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  padding: 0.125rem 0.375rem;
+  border-radius: 0.75rem;
+  min-width: 1.25rem;
+  text-align: center;
+}
+
+.eval-tree-evaluations {
+  padding-left: 1.5rem;
+  margin-top: 0.25rem;
+}
+
+.eval-tree-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.375rem 0.75rem;
+  cursor: pointer;
+  transition: background 0.2s ease;
+  border-radius: 0.25rem;
+  margin: 0.125rem 0.5rem 0.125rem 0;
+}
+
+.eval-tree-item:hover {
+  background: var(--bg-tertiary);
+}
+
+.eval-tree-item.selected {
+  background: var(--bg-tertiary);
+  border-left: 3px solid var(--accent);
+  margin-left: -3px;
+  padding-left: calc(0.75rem + 3px);
+}
+
+.eval-tree-item-icon {
+  font-size: 0.75rem;
+  opacity: 0.7;
+}
+
+.eval-tree-item-name {
+  flex: 1;
+  font-size: 0.8125rem;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.eval-tree-empty {
+  padding: 0.5rem 0.75rem;
+  margin-left: 1.5rem;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+/* ========================================
+   JSON EDITOR
+   ======================================== */
+
+.eval-json-editor {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  background: var(--bg-secondary);
+  border-radius: 0.5rem;
+  border: 1px solid var(--border-color);
+  overflow: hidden;
+}
+
+.eval-json-editor-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1rem;
+  background: var(--bg-tertiary);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.eval-json-editor-title {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.eval-json-editor-filename {
+  font-family: 'Fira Code', 'Consolas', monospace;
+  font-size: 0.875rem;
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.view-prompt-btn {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.view-prompt-btn:hover {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  border-color: var(--text-secondary);
+}
+
+.view-prompt-btn.active {
+  background: var(--accent);
+  color: white;
+  border-color: var(--accent);
+}
+
+.view-prompt-btn.active:hover {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+
+/* Prompt viewer (read-only) */
+.eval-prompt-viewer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  overflow: auto;
+  background: #1e1e1e;
+}
+
+.eval-prompt-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--text-secondary);
+}
+
+/* Prompt viewer scrollbar */
+.eval-prompt-viewer::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.eval-prompt-viewer::-webkit-scrollbar-track {
+  background: #1e1e1e;
+}
+
+.eval-prompt-viewer::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+}
+
+.eval-prompt-viewer::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.eval-prompt-viewer::-webkit-scrollbar-corner {
+  background: #1e1e1e;
+}
+
+.eval-json-editor-tags {
+  display: flex;
+  gap: 0.375rem;
+}
+
+.eval-json-editor-content {
+  position: relative;
+  flex: 1;
+  min-height: 300px;
+  overflow: hidden;
+}
+
+.eval-json-textarea {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  padding: 1rem;
+  border: none;
+  background: transparent;
+  color: transparent;
+  caret-color: var(--text-primary);
+  font-family: 'Fira Code', 'Consolas', monospace;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  resize: none;
+  z-index: 2;
+  white-space: pre;
+  overflow: auto;
+}
+
+.eval-json-textarea:focus {
+  outline: none;
+}
+
+.eval-json-textarea::selection {
+  background: rgba(100, 150, 255, 0.4);
+  color: transparent;
+}
+
+/* JSON editor scrollbar - matches chat container */
+.eval-json-textarea::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.eval-json-textarea::-webkit-scrollbar-track {
+  background: #1e1e1e;
+}
+
+.eval-json-textarea::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+}
+
+.eval-json-textarea::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.eval-json-textarea::-webkit-scrollbar-corner {
+  background: #1e1e1e;
+}
+
+.eval-json-preview {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.eval-json-preview pre {
+  margin: 0 !important;
+  min-height: 100%;
+}
+
+.eval-json-error {
+  padding: 0.75rem 1rem;
+  background: rgba(244, 67, 54, 0.1);
+  border-top: 1px solid rgba(244, 67, 54, 0.3);
+  color: #f44336;
+  font-size: 0.8125rem;
+}
+
+.eval-json-status {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  font-size: 0.8125rem;
+  border-top: 1px solid var(--border-color);
+}
+
+.eval-json-status-message {
+  white-space: pre-line;
+  flex: 1;
+}
+
+.eval-json-status-close {
+  background: none;
+  border: none;
+  color: inherit;
+  font-size: 1.25rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+  opacity: 0.7;
+  flex-shrink: 0;
+}
+
+.eval-json-status-close:hover {
+  opacity: 1;
+}
+
+.eval-json-status.success {
+  background: rgba(76, 175, 80, 0.1);
+  color: #4caf50;
+}
+
+.eval-json-status.error {
+  background: rgba(244, 67, 54, 0.1);
+  color: #f44336;
+}
+
+.eval-json-editor-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1rem;
+  background: var(--bg-tertiary);
+  border-top: 1px solid var(--border-color);
+}
+
+.eval-json-editor-hint {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.eval-json-editor-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.run-btn.secondary {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+}
+
+.run-btn.secondary:hover:not(:disabled) {
+  background: var(--bg-secondary);
+  border-color: var(--text-secondary);
+}
+
+.run-btn.secondary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.run-btn.danger {
+  background: var(--danger-bg);
+  color: var(--danger);
+  border: 1px solid var(--danger);
+}
+
+.run-btn.danger:hover:not(:disabled) {
+  background: var(--danger-bg-hover);
+  color: white;
+  border-color: var(--danger-hover);
+}
+
+.run-btn.danger:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Full height content for evaluation editor (no top header) */
+.eval-runner-content-full {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0;
+}
+
+.eval-runner-content-full .eval-json-editor {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  border-radius: 0;
+  border: none;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.eval-result-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem 0.5rem 1.5rem;
+  cursor: pointer;
+  font-size: 0.8125rem;
+  border-left: 2px solid transparent;
+}
+
+.eval-result-item:hover {
+  background: var(--surface-hover);
+}
+
+.eval-result-item.selected {
+  background: var(--surface-active);
+  border-left-color: var(--accent);
+}
+
+.eval-result-item .result-name {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-primary);
+}
+
+.eval-result-item .result-score {
+  font-weight: 600;
+  font-size: 0.75rem;
+  min-width: 2.5rem;
+  text-align: right;
+}
+
+.eval-result-item .result-date {
+  font-size: 0.6875rem;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.eval-result-item .result-delete-btn {
+  opacity: 0;
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0.125rem 0.375rem;
+  margin-left: 0.25rem;
+  border-radius: 3px;
+  transition: opacity 0.15s, color 0.15s, background 0.15s;
+}
+
+.eval-result-item:hover .result-delete-btn {
+  opacity: 1;
+  color: white;
+  background: var(--danger-bg-hover);
+}
+
+.eval-result-item .result-delete-btn:hover {
+  background: var(--danger-hover);
 }
 
 /* ========================================

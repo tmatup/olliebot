@@ -324,6 +324,15 @@ export interface SuiteInfo {
   evaluationCount: number;
 }
 
+export interface SuiteWithEvaluations {
+  id: string;
+  name: string;
+  description: string;
+  path: string;           // folder path relative to evaluationsDir
+  suitePath: string;      // .suite.json path relative to evaluationsDir
+  evaluations: EvaluationInfo[];
+}
+
 // ============================================================================
 // Progress Events (for WebSocket)
 // ============================================================================

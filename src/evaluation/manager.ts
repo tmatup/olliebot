@@ -8,7 +8,7 @@
  * - Store and retrieve results
  */
 
-import { existsSync, readdirSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
+import { existsSync, readdirSync, readFileSync, writeFileSync, mkdirSync, unlinkSync } from 'fs';
 import { join, relative, basename, dirname } from 'path';
 import type { LLMService } from '../llm/service.js';
 import type { ToolRunner } from '../tools/runner.js';
@@ -19,6 +19,7 @@ import type {
   SuiteResult,
   EvaluationInfo,
   SuiteInfo,
+  SuiteWithEvaluations,
   AggregatedResults,
   EvalEvent,
 } from './types.js';
@@ -59,8 +60,6 @@ export class EvaluationManager {
     const dirs = [
       this.config.evaluationsDir,
       this.config.resultsDir,
-      join(this.config.evaluationsDir, 'supervisor'),
-      join(this.config.evaluationsDir, 'sub-agents'),
       join(this.config.evaluationsDir, 'suites'),
     ];
 
@@ -145,10 +144,25 @@ export class EvaluationManager {
   }
 
   /**
-   * List all evaluation suites
+   * List all evaluation suites (legacy - returns SuiteInfo[])
    */
   listSuites(): SuiteInfo[] {
-    const suites: SuiteInfo[] = [];
+    const suitesWithEvals = this.listSuitesWithEvaluations();
+    return suitesWithEvals.map(suite => ({
+      id: suite.id,
+      name: suite.name,
+      description: suite.description,
+      path: suite.suitePath,
+      evaluationCount: suite.evaluations.length,
+    }));
+  }
+
+  /**
+   * List all evaluation suites with their contained evaluations
+   * Scans suites/ directory for subdirectories, each subdirectory is a suite
+   */
+  listSuitesWithEvaluations(): SuiteWithEvaluations[] {
+    const suites: SuiteWithEvaluations[] = [];
     const suitesDir = join(this.config.evaluationsDir, 'suites');
 
     if (!existsSync(suitesDir)) return suites;
@@ -156,22 +170,57 @@ export class EvaluationManager {
     const entries = readdirSync(suitesDir, { withFileTypes: true });
 
     for (const entry of entries) {
-      if (entry.name.endsWith('.suite.json')) {
-        const fullPath = join(suitesDir, entry.name);
+      // Each subdirectory is a suite
+      if (entry.isDirectory()) {
+        const suiteFolder = join(suitesDir, entry.name);
+        const suiteName = entry.name;
+        const suiteJsonPath = join(suiteFolder, `${suiteName}.suite.json`);
 
         try {
-          const content = readFileSync(fullPath, 'utf-8');
-          const parsed = JSON.parse(content) as EvaluationSuite;
+          // Load suite metadata from .suite.json file
+          if (!existsSync(suiteJsonPath)) {
+            console.warn(`[EvaluationManager] Suite folder ${suiteName} missing ${suiteName}.suite.json`);
+            continue;
+          }
+
+          const suiteContent = readFileSync(suiteJsonPath, 'utf-8');
+          const parsed = JSON.parse(suiteContent) as EvaluationSuite;
+
+          // Scan for .eval.json files in the suite folder
+          const evaluations: EvaluationInfo[] = [];
+          const suiteEntries = readdirSync(suiteFolder, { withFileTypes: true });
+
+          for (const suiteEntry of suiteEntries) {
+            if (suiteEntry.isFile() && suiteEntry.name.endsWith('.eval.json')) {
+              const evalPath = join(suiteFolder, suiteEntry.name);
+              try {
+                const evalContent = readFileSync(evalPath, 'utf-8');
+                const evalParsed = JSON.parse(evalContent) as EvaluationDefinition;
+
+                evaluations.push({
+                  id: evalParsed.metadata.id,
+                  name: evalParsed.metadata.name,
+                  description: evalParsed.metadata.description,
+                  path: relative(this.config.evaluationsDir, evalPath),
+                  target: evalParsed.metadata.target,
+                  tags: evalParsed.metadata.tags,
+                });
+              } catch (error) {
+                console.warn(`[EvaluationManager] Failed to parse eval ${evalPath}:`, error);
+              }
+            }
+          }
 
           suites.push({
             id: parsed.metadata.id,
             name: parsed.metadata.name,
             description: parsed.metadata.description,
-            path: relative(this.config.evaluationsDir, fullPath),
-            evaluationCount: parsed.evaluations.length,
+            path: relative(this.config.evaluationsDir, suiteFolder),
+            suitePath: relative(this.config.evaluationsDir, suiteJsonPath),
+            evaluations,
           });
         } catch (error) {
-          console.warn(`[EvaluationManager] Failed to parse suite ${fullPath}:`, error);
+          console.warn(`[EvaluationManager] Failed to parse suite ${suiteFolder}:`, error);
         }
       }
     }
@@ -216,6 +265,22 @@ export class EvaluationManager {
     const parsed = JSON.parse(content) as EvaluationSuite;
 
     return parsed;
+  }
+
+  /**
+   * Save an evaluation definition to file
+   */
+  saveEvaluation(path: string, content: EvaluationDefinition): void {
+    const fullPath = path.startsWith('/')
+      ? path
+      : join(this.config.evaluationsDir, path);
+
+    // Validate the evaluation before saving
+    this.validateEvaluation(content);
+
+    // Write to file
+    writeFileSync(fullPath, JSON.stringify(content, null, 2));
+    console.log(`[EvaluationManager] Evaluation saved to: ${fullPath}`);
   }
 
   /**
@@ -499,6 +564,93 @@ export class EvaluationManager {
     }
 
     return results;
+  }
+
+  /**
+   * Load a specific result by its file path (e.g., "2026-02-01/result-file.json")
+   */
+  loadResultByPath(filePath: string): ComparisonResult {
+    const fullPath = join(this.config.resultsDir, filePath);
+
+    if (!existsSync(fullPath)) {
+      throw new Error(`Result file not found: ${fullPath}`);
+    }
+
+    const content = readFileSync(fullPath, 'utf-8');
+    return JSON.parse(content) as ComparisonResult;
+  }
+
+  /**
+   * Load recent results across all evaluations
+   */
+  loadRecentResults(limit = 10): Array<{ evaluationId: string; evaluationName: string; timestamp: Date; overallScore: number; filePath: string }> {
+    const results: Array<{ evaluationId: string; evaluationName: string; timestamp: Date; overallScore: number; filePath: string; mtime: number }> = [];
+
+    if (!existsSync(this.config.resultsDir)) return [];
+
+    // Scan all date directories
+    const dateDirs = readdirSync(this.config.resultsDir, { withFileTypes: true })
+      .filter(d => d.isDirectory())
+      .map(d => d.name)
+      .sort()
+      .reverse();
+
+    for (const dateDir of dateDirs) {
+      const dirPath = join(this.config.resultsDir, dateDir);
+      const files = readdirSync(dirPath)
+        .filter(f => f.endsWith('.json') && !f.startsWith('suite-'))
+        .sort()
+        .reverse();
+
+      for (const file of files) {
+        if (results.length >= limit * 2) break; // Get extra to sort by time
+
+        try {
+          const filePath = join(dirPath, file);
+          const content = readFileSync(filePath, 'utf-8');
+          const parsed = JSON.parse(content) as ComparisonResult;
+
+          results.push({
+            evaluationId: parsed.evaluationId,
+            evaluationName: parsed.evaluationName,
+            timestamp: new Date(parsed.timestamp),
+            overallScore: parsed.baseline.overallScore.mean,
+            filePath: `${dateDir}/${file}`,
+            mtime: new Date(parsed.timestamp).getTime(),
+          });
+        } catch {
+          // Skip invalid files
+        }
+      }
+
+      if (results.length >= limit * 2) break;
+    }
+
+    // Sort by timestamp descending and limit
+    return results
+      .sort((a, b) => b.mtime - a.mtime)
+      .slice(0, limit)
+      .map(({ mtime, ...rest }) => rest);
+  }
+
+  /**
+   * Delete a result file by its path (e.g., "2026-02-01/result-123.json")
+   */
+  deleteResult(filePath: string): void {
+    const fullPath = join(this.config.resultsDir, filePath);
+
+    if (!existsSync(fullPath)) {
+      throw new Error(`Result file not found: ${filePath}`);
+    }
+
+    // Security check: ensure path is within resultsDir
+    const normalizedPath = join(this.config.resultsDir, filePath);
+    if (!normalizedPath.startsWith(this.config.resultsDir)) {
+      throw new Error('Invalid file path');
+    }
+
+    unlinkSync(fullPath);
+    console.log(`[EvaluationManager] Deleted result: ${filePath}`);
   }
 
   /**

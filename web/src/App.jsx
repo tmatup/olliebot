@@ -114,6 +114,8 @@ function App() {
   // Eval mode state
   const [selectedEvaluation, setSelectedEvaluation] = useState(null);
   const [selectedSuite, setSelectedSuite] = useState(null);
+  const [selectedResult, setSelectedResult] = useState(null);
+  const [viewingResults, setViewingResults] = useState(null);
   // Response pending state (disable input while waiting)
   const [isResponsePending, setIsResponsePending] = useState(false);
 
@@ -1196,13 +1198,33 @@ function App() {
             onSelectEvaluation={(evaluation) => {
               setSelectedEvaluation(evaluation);
               setSelectedSuite(null);
+              setSelectedResult(null);
+              setViewingResults(null);
             }}
             onSelectSuite={(suite) => {
               setSelectedSuite(suite);
               setSelectedEvaluation(null);
+              setSelectedResult(null);
+              setViewingResults(null);
+            }}
+            onSelectResult={async (resultInfo) => {
+              setSelectedResult(resultInfo);
+              setSelectedEvaluation(null);
+              setSelectedSuite(null);
+              // Fetch full result data
+              try {
+                const res = await fetch(`/api/eval/result/${encodeURIComponent(resultInfo.filePath)}`);
+                if (res.ok) {
+                  const data = await res.json();
+                  setViewingResults(data.result);
+                }
+              } catch (err) {
+                console.error('Failed to load result:', err);
+              }
             }}
             selectedEvaluation={selectedEvaluation}
             selectedSuite={selectedSuite}
+            selectedResult={selectedResult}
           />
         )}
 
@@ -1562,9 +1584,12 @@ function App() {
             <EvalRunner
               evaluation={selectedEvaluation}
               suite={selectedSuite}
+              viewingResults={viewingResults}
               onBack={() => {
                 setSelectedEvaluation(null);
                 setSelectedSuite(null);
+                setSelectedResult(null);
+                setViewingResults(null);
               }}
             />
           </main>

@@ -12,6 +12,7 @@ import type { PromptReference, TargetType } from './types.js';
 
 // Directory paths
 const USER_PROMPTS_DIR = join(process.cwd(), 'user', 'sub-agents');
+const AGENT_PROMPTS_DIR = join(process.cwd(), 'src', 'agents');
 
 // Default prompts (fallback if file doesn't exist)
 const DEFAULT_PROMPTS: Record<string, string> = {
@@ -125,8 +126,12 @@ export class PromptLoader {
       promptPath,
       // Relative to user/sub-agents/
       join(this.promptsDir, promptPath),
-      // With .md extension
+      // With .md extension in user dir
       join(this.promptsDir, `${promptPath}.md`),
+      // Relative to src/agents/
+      join(AGENT_PROMPTS_DIR, promptPath),
+      // With .md extension in src/agents/
+      join(AGENT_PROMPTS_DIR, `${promptPath}.md`),
     ];
 
     for (const fullPath of pathsToTry) {
@@ -177,16 +182,22 @@ export class PromptLoader {
    * Load supervisor system prompt
    */
   loadSupervisorPrompt(): string {
-    // Try loading from file first
-    const supervisorPath = join(this.promptsDir, 'supervisor.md');
-    if (existsSync(supervisorPath)) {
-      try {
-        const content = readFileSync(supervisorPath, 'utf-8').trim();
-        if (content.length > 0) {
-          return content;
+    // Try loading from file first - check both user dir and src/agents
+    const pathsToTry = [
+      join(this.promptsDir, 'supervisor.md'),
+      join(AGENT_PROMPTS_DIR, 'supervisor.md'),
+    ];
+
+    for (const supervisorPath of pathsToTry) {
+      if (existsSync(supervisorPath)) {
+        try {
+          const content = readFileSync(supervisorPath, 'utf-8').trim();
+          if (content.length > 0) {
+            return content;
+          }
+        } catch {
+          // Try next path
         }
-      } catch {
-        // Fall through to default
       }
     }
 
@@ -204,15 +215,22 @@ export class PromptLoader {
    * Load tool generator prompt
    */
   loadToolGeneratorPrompt(): string {
-    const generatorPath = join(this.promptsDir, 'code-generator.md');
-    if (existsSync(generatorPath)) {
-      try {
-        const content = readFileSync(generatorPath, 'utf-8').trim();
-        if (content.length > 0) {
-          return content;
+    // Try loading from file first - check both user dir and src/agents
+    const pathsToTry = [
+      join(this.promptsDir, 'code-generator.md'),
+      join(AGENT_PROMPTS_DIR, 'code-generator.md'),
+    ];
+
+    for (const generatorPath of pathsToTry) {
+      if (existsSync(generatorPath)) {
+        try {
+          const content = readFileSync(generatorPath, 'utf-8').trim();
+          if (content.length > 0) {
+            return content;
+          }
+        } catch {
+          // Try next path
         }
-      } catch {
-        // Fall through to default
       }
     }
 

@@ -39,6 +39,7 @@ export function setupEvalRoutes(app: Express, config: EvalRoutesConfig): Evaluat
   // Subscribe to evaluation events and broadcast via WebSocket
   if (config.webChannel) {
     manager.onEvent((event) => {
+      console.log('[EvalAPI] Broadcasting event:', event.type, 'jobId:', event.jobId);
       config.webChannel!.broadcast(event);
 
       // Update job status
@@ -50,6 +51,8 @@ export function setupEvalRoutes(app: Express, config: EvalRoutesConfig): Evaluat
         }
       }
     });
+  } else {
+    console.warn('[EvalAPI] No webChannel configured - WebSocket events will not be broadcast');
   }
 
   // List all evaluations
@@ -67,32 +70,14 @@ export function setupEvalRoutes(app: Express, config: EvalRoutesConfig): Evaluat
     }
   });
 
-  // List all suites
+  // List all suites with their evaluations (tree structure)
   app.get('/api/eval/suites', (_req: Request, res: Response) => {
     try {
-      const suites = manager.listSuites();
+      const suites = manager.listSuitesWithEvaluations();
       res.json({ suites });
     } catch (error) {
       console.error('[EvalAPI] Failed to list suites:', error);
       res.status(500).json({ error: 'Failed to list suites' });
-    }
-  });
-
-  // Get evaluation details
-  app.get('/api/eval/:path(*)', (req: Request, res: Response) => {
-    try {
-      const path = String(req.params.path);
-      // Don't handle special routes
-      if (['list', 'suites', 'run', 'results', 'history'].includes(path.split('/')[0])) {
-        res.status(404).json({ error: 'Not found' });
-        return;
-      }
-
-      const evaluation = manager.loadEvaluation(path);
-      res.json({ evaluation });
-    } catch (error) {
-      console.error('[EvalAPI] Failed to load evaluation:', error);
-      res.status(404).json({ error: 'Evaluation not found' });
     }
   });
 
@@ -239,6 +224,18 @@ export function setupEvalRoutes(app: Express, config: EvalRoutesConfig): Evaluat
     }
   });
 
+  // List all recent results (for sidebar)
+  app.get('/api/eval/results', (req: Request, res: Response) => {
+    try {
+      const limit = parseInt(req.query.limit as string) || 10;
+      const results = manager.loadRecentResults(limit);
+      res.json({ results });
+    } catch (error) {
+      console.error('[EvalAPI] Failed to load recent results:', error);
+      res.status(500).json({ error: 'Failed to load recent results' });
+    }
+  });
+
   // Get historical results for an evaluation
   app.get('/api/eval/history/:evaluationId', (req: Request, res: Response) => {
     try {
@@ -249,6 +246,67 @@ export function setupEvalRoutes(app: Express, config: EvalRoutesConfig): Evaluat
     } catch (error) {
       console.error('[EvalAPI] Failed to load history:', error);
       res.status(500).json({ error: 'Failed to load history' });
+    }
+  });
+
+  // Load a specific result file by path (e.g., "2026-02-01/researcher-web-search-001-123.json")
+  app.get('/api/eval/result/:path(*)', (req: Request, res: Response) => {
+    try {
+      const path = String(req.params.path);
+      const result = manager.loadResultByPath(path);
+      res.json({ result });
+    } catch (error) {
+      console.error('[EvalAPI] Failed to load result:', error);
+      res.status(404).json({ error: 'Result not found' });
+    }
+  });
+
+  // Delete a result file by path
+  app.delete('/api/eval/result/:path(*)', (req: Request, res: Response) => {
+    try {
+      const path = String(req.params.path);
+      manager.deleteResult(path);
+      res.json({ success: true, deleted: path });
+    } catch (error) {
+      console.error('[EvalAPI] Failed to delete result:', error);
+      res.status(404).json({ error: 'Failed to delete result' });
+    }
+  });
+
+  // Save evaluation (PUT - must be before GET catch-all)
+  app.put('/api/eval/:path(*)', (req: Request, res: Response) => {
+    try {
+      const path = String(req.params.path);
+      const content = req.body;
+
+      if (!content) {
+        res.status(400).json({ error: 'Request body is required' });
+        return;
+      }
+
+      // Validate JSON structure before saving
+      if (!content.metadata?.id || !content.metadata?.name) {
+        res.status(400).json({ error: 'Invalid evaluation: missing metadata.id or metadata.name' });
+        return;
+      }
+
+      manager.saveEvaluation(path, content);
+      res.json({ success: true, path });
+    } catch (error) {
+      console.error('[EvalAPI] Failed to save evaluation:', error);
+      res.status(500).json({ error: String(error) });
+    }
+  });
+
+  // Get evaluation details (catch-all - must be after all specific /api/eval/* routes)
+  app.get('/api/eval/:path(*)', (req: Request, res: Response) => {
+    try {
+      const path = String(req.params.path);
+      const evaluation = manager.loadEvaluation(path);
+      res.json({ evaluation });
+    } catch (error) {
+      console.error('[EvalAPI] Failed to load evaluation:', error);
+      res.status(404).json({ error: 'Evaluation not found' });
     }
   });
 
