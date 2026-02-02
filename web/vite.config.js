@@ -13,6 +13,7 @@ export default defineConfig({
       '/ws': {
         target: 'ws://localhost:3000',
         ws: true,
+        rewrite: (path) => path.replace(/^\/ws/, ''),
       },
     },
     // HMR configuration for Windows compatibility
