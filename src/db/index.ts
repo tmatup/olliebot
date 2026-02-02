@@ -55,11 +55,21 @@ export interface Embedding {
   createdAt: string;
 }
 
+export interface MessageRevision {
+  id: string;
+  messageId: string;
+  revisionNumber: number;
+  content: string;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+}
+
 interface DatabaseData {
   conversations: Conversation[];
   messages: Message[];
   tasks: Task[];
   embeddings: Embedding[];
+  messageRevisions: MessageRevision[];
 }
 
 // ============================================================================
@@ -79,6 +89,14 @@ export interface MessageRepository {
   findById(id: string): Message | undefined;
   findByConversationId(conversationId: string, options?: { limit?: number }): Message[];
   create(message: Message): void;
+  update(id: string, updates: { content?: string; metadata?: Record<string, unknown> }): void;
+}
+
+export interface MessageRevisionRepository {
+  findByMessageId(messageId: string): MessageRevision[];
+  findByRevisionNumber(messageId: string, revisionNumber: number): MessageRevision | undefined;
+  getLatestRevisionNumber(messageId: string): number;
+  create(revision: MessageRevision): void;
 }
 
 export interface TaskRepository {
@@ -109,6 +127,7 @@ class Database {
   messages: MessageRepository;
   tasks: TaskRepository;
   embeddings: EmbeddingRepository;
+  messageRevisions: MessageRevisionRepository;
 
   constructor(dbPath: string) {
     this.dbPath = dbPath.endsWith('.json') ? dbPath : dbPath.replace(/\.[^.]+$/, '') + '.json';
@@ -118,6 +137,7 @@ class Database {
     this.messages = this.createMessageRepository();
     this.tasks = this.createTaskRepository();
     this.embeddings = this.createEmbeddingRepository();
+    this.messageRevisions = this.createMessageRevisionRepository();
   }
 
   async init(): Promise<void> {
@@ -173,6 +193,17 @@ class Database {
       )
     `);
 
+    alasql(`
+      CREATE TABLE IF NOT EXISTS message_revisions (
+        id STRING PRIMARY KEY,
+        messageId STRING,
+        revisionNumber INT,
+        content STRING,
+        metadata STRING,
+        createdAt STRING
+      )
+    `);
+
     // Load existing data from JSON file
     this.loadFromFile();
     this.initialized = true;
@@ -189,6 +220,7 @@ class Database {
         alasql('DELETE FROM messages');
         alasql('DELETE FROM tasks');
         alasql('DELETE FROM embeddings');
+        alasql('DELETE FROM message_revisions');
 
         // Insert loaded data (serialize complex fields for AlaSQL storage)
         if (data.conversations?.length) {
@@ -216,6 +248,13 @@ class Database {
           }));
           alasql('INSERT INTO embeddings SELECT * FROM ?', [embeddings]);
         }
+        if (data.messageRevisions?.length) {
+          const revisions = data.messageRevisions.map(r => ({
+            ...r,
+            metadata: typeof r.metadata === 'object' ? JSON.stringify(r.metadata) : r.metadata,
+          }));
+          alasql('INSERT INTO message_revisions SELECT * FROM ?', [revisions]);
+        }
 
         console.log(`[Database] Loaded from ${this.dbPath}`);
       }
@@ -236,6 +275,7 @@ class Database {
       const rawMessages = alasql('SELECT * FROM messages ORDER BY createdAt ASC') as Array<Record<string, unknown>>;
       const rawTasks = alasql('SELECT * FROM tasks ORDER BY updatedAt DESC') as Array<Record<string, unknown>>;
       const rawEmbeddings = alasql('SELECT * FROM embeddings ORDER BY source, chunkIndex') as Array<Record<string, unknown>>;
+      const rawRevisions = alasql('SELECT * FROM message_revisions ORDER BY messageId, revisionNumber ASC') as Array<Record<string, unknown>>;
 
       // Deserialize JSON strings for human-readable output
       const data: DatabaseData = {
@@ -253,6 +293,10 @@ class Database {
           embedding: typeof e.embedding === 'string' ? JSON.parse(e.embedding as string) : e.embedding,
           metadata: typeof e.metadata === 'string' ? JSON.parse(e.metadata as string) : e.metadata,
         })) as Embedding[],
+        messageRevisions: rawRevisions.map(r => ({
+          ...r,
+          metadata: typeof r.metadata === 'string' ? JSON.parse(r.metadata as string) : r.metadata,
+        })) as MessageRevision[],
       };
 
       writeFileSync(this.dbPath, JSON.stringify(data, null, 2), 'utf-8');
@@ -376,6 +420,72 @@ class Database {
           metadata: JSON.stringify(message.metadata || {}),
         };
         alasql('INSERT INTO messages VALUES ?', [row]);
+        this.scheduleSave();
+      },
+
+      update: (id: string, updates: { content?: string; metadata?: Record<string, unknown> }): void => {
+        const setClauses: string[] = [];
+        const values: unknown[] = [];
+
+        if (updates.content !== undefined) {
+          setClauses.push('content = ?');
+          values.push(updates.content);
+        }
+        if (updates.metadata !== undefined) {
+          setClauses.push('metadata = ?');
+          values.push(JSON.stringify(updates.metadata));
+        }
+
+        if (setClauses.length > 0) {
+          values.push(id);
+          alasql(`UPDATE messages SET ${setClauses.join(', ')} WHERE id = ?`, values);
+          this.scheduleSave();
+        }
+      },
+    };
+  }
+
+  private createMessageRevisionRepository(): MessageRevisionRepository {
+    const deserializeRevision = (row: Record<string, unknown>): MessageRevision => ({
+      id: row.id as string,
+      messageId: row.messageId as string,
+      revisionNumber: row.revisionNumber as number,
+      content: row.content as string,
+      metadata: typeof row.metadata === 'string' ? JSON.parse(row.metadata as string) : row.metadata as Record<string, unknown>,
+      createdAt: row.createdAt as string,
+    });
+
+    return {
+      findByMessageId: (messageId: string): MessageRevision[] => {
+        const rows = alasql(
+          'SELECT * FROM message_revisions WHERE messageId = ? ORDER BY revisionNumber ASC',
+          [messageId]
+        ) as Array<Record<string, unknown>>;
+        return rows.map(deserializeRevision);
+      },
+
+      findByRevisionNumber: (messageId: string, revisionNumber: number): MessageRevision | undefined => {
+        const rows = alasql(
+          'SELECT * FROM message_revisions WHERE messageId = ? AND revisionNumber = ?',
+          [messageId, revisionNumber]
+        ) as Array<Record<string, unknown>>;
+        return rows[0] ? deserializeRevision(rows[0]) : undefined;
+      },
+
+      getLatestRevisionNumber: (messageId: string): number => {
+        const rows = alasql(
+          'SELECT MAX(revisionNumber) as maxRev FROM message_revisions WHERE messageId = ?',
+          [messageId]
+        ) as Array<{ maxRev: number | null }>;
+        return rows[0]?.maxRev ?? 0;
+      },
+
+      create: (revision: MessageRevision): void => {
+        const row = {
+          ...revision,
+          metadata: JSON.stringify(revision.metadata || {}),
+        };
+        alasql('INSERT INTO message_revisions VALUES ?', [row]);
         this.scheduleSave();
       },
     };

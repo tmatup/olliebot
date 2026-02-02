@@ -901,4 +901,89 @@ export class SupervisorAgentImpl extends AbstractAgent implements ISupervisorAge
       console.error(`[${this.identity.name}] Failed to save delegation event:`, error);
     }
   }
+
+  /**
+   * Handle applet revision request from user
+   * This takes the original message with applet code and user's revision instructions,
+   * then generates updated applet code and sends it as a message update.
+   */
+  async handleAppletRevision(messageId: string, instructions: string, conversationId?: string): Promise<void> {
+    try {
+      const db = getDb();
+      const message = db.messages.findById(messageId);
+
+      if (!message) {
+        console.error(`[${this.identity.name}] Message not found for applet revision: ${messageId}`);
+        return;
+      }
+
+      // Extract applet code from the message content
+      const appletMatch = message.content.match(/```(?:applet|interactive)\n([\s\S]*?)```/);
+      if (!appletMatch) {
+        console.error(`[${this.identity.name}] No applet code found in message: ${messageId}`);
+        return;
+      }
+
+      const currentAppletCode = appletMatch[1];
+
+      // Use LLM to generate revised applet code
+      const response = await this.llmService.quickGenerate(
+        [
+          {
+            role: 'system',
+            content: `You are an expert at creating interactive HTML/JavaScript applets.
+You will be given the current applet code and user instructions for revisions.
+Output ONLY the revised complete applet code (HTML with embedded JavaScript).
+Do NOT include the markdown code fence - just the raw HTML/JS code.
+Do NOT include explanations or commentary.
+The applet will run in an iframe with sandbox="allow-scripts".`,
+          },
+          {
+            role: 'user',
+            content: `Current applet code:
+\`\`\`
+${currentAppletCode}
+\`\`\`
+
+User's revision instructions: ${instructions}
+
+Please provide the complete revised applet code:`,
+          },
+        ],
+        { maxTokens: 4096 }
+      );
+
+      if (!response || !response.content || response.content.length === 0) {
+        console.error(`[${this.identity.name}] Failed to generate revised applet`);
+        return;
+      }
+
+      // Extract the revised code from response
+      let revisedCode = '';
+      for (const block of response.content) {
+        if (block.type === 'text') {
+          revisedCode = block.text;
+          break;
+        }
+      }
+
+      // Clean up the code (remove any markdown fences if LLM included them)
+      revisedCode = revisedCode.replace(/^```(?:html|applet|interactive)?\n?/, '').replace(/\n?```$/, '');
+
+      // Build the new message content with the revised applet
+      const newContent = message.content.replace(
+        /```(?:applet|interactive)\n[\s\S]*?```/,
+        `\`\`\`applet\n${revisedCode}\n\`\`\``
+      );
+
+      // Get the web channel and send the update
+      const webChannel = this.getChannel('web-default') as WebChannel | undefined;
+      if (webChannel) {
+        webChannel.updateMessage(messageId, { content: newContent }, conversationId);
+        console.log(`[${this.identity.name}] Sent applet revision for message ${messageId}`);
+      }
+    } catch (error) {
+      console.error(`[${this.identity.name}] Failed to handle applet revision:`, error);
+    }
+  }
 }

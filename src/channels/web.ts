@@ -69,6 +69,8 @@ export class WebChannel implements Channel {
 
   private newConversationHandler: (() => void) | null = null;
   private browserActionHandler: ((action: string, sessionId: string) => Promise<void>) | null = null;
+  private appletRevisionHandler: ((messageId: string, instructions: string, conversationId?: string) => Promise<void>) | null = null;
+  private messageUpdateHandler: ((messageId: string, content: string, conversationId?: string) => Promise<void>) | null = null;
 
   private async handleClientMessage(clientId: string, data: unknown): Promise<void> {
     const msg = data as {
@@ -79,6 +81,8 @@ export class WebChannel implements Channel {
       conversationId?: string;
       requestId?: string;
       sessionId?: string;
+      messageId?: string;
+      instructions?: string;
       attachments?: Array<{ name: string; type: string; size: number; data: string }>;
     };
 
@@ -102,6 +106,9 @@ export class WebChannel implements Channel {
       this.newConversationHandler();
     } else if (msg.type === 'browser-action' && msg.action && msg.sessionId && this.browserActionHandler) {
       await this.browserActionHandler(msg.action, msg.sessionId);
+    } else if (msg.type === 'applet-revision' && msg.messageId && msg.instructions && this.appletRevisionHandler) {
+      // Handle applet revision request from user
+      await this.appletRevisionHandler(msg.messageId, msg.instructions, msg.conversationId);
     }
   }
 
@@ -233,6 +240,13 @@ export class WebChannel implements Channel {
       timestamp: new Date().toISOString(),
     };
     this.broadcast(payload);
+
+    // Trigger message update handler if registered (for revision storage)
+    if (this.messageUpdateHandler && updates.content !== undefined) {
+      this.messageUpdateHandler(messageId, updates.content, conversationId).catch(err => {
+        console.error('[WebChannel] Failed to handle message update:', err);
+      });
+    }
   }
 
   /**
@@ -274,6 +288,14 @@ export class WebChannel implements Channel {
 
   onBrowserAction(handler: (action: string, sessionId: string) => Promise<void>): void {
     this.browserActionHandler = handler;
+  }
+
+  onAppletRevision(handler: (messageId: string, instructions: string, conversationId?: string) => Promise<void>): void {
+    this.appletRevisionHandler = handler;
+  }
+
+  onMessageUpdate(handler: (messageId: string, content: string, conversationId?: string) => Promise<void>): void {
+    this.messageUpdateHandler = handler;
   }
 
   isConnected(): boolean {

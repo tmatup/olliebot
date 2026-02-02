@@ -451,6 +451,51 @@ export class OllieBotServer {
       res.json({ count: this.webChannel.getConnectedClients() });
     });
 
+    // Get message revisions
+    this.app.get('/api/messages/:id/revisions', (req: Request, res: Response) => {
+      try {
+        const db = getDb();
+        const messageId = req.params.id;
+        const revisions = db.messageRevisions.findByMessageId(messageId);
+        res.json(revisions.map(r => ({
+          id: r.id,
+          messageId: r.messageId,
+          revisionNumber: r.revisionNumber,
+          content: r.content,
+          metadata: r.metadata,
+          createdAt: r.createdAt,
+        })));
+      } catch (error) {
+        console.error('[API] Failed to fetch revisions:', error);
+        res.status(500).json({ error: 'Failed to fetch revisions' });
+      }
+    });
+
+    // Get specific revision
+    this.app.get('/api/messages/:id/revisions/:revisionNumber', (req: Request, res: Response) => {
+      try {
+        const db = getDb();
+        const messageId = req.params.id;
+        const revisionNumber = parseInt(req.params.revisionNumber);
+        const revision = db.messageRevisions.findByRevisionNumber(messageId, revisionNumber);
+        if (!revision) {
+          res.status(404).json({ error: 'Revision not found' });
+          return;
+        }
+        res.json({
+          id: revision.id,
+          messageId: revision.messageId,
+          revisionNumber: revision.revisionNumber,
+          content: revision.content,
+          metadata: revision.metadata,
+          createdAt: revision.createdAt,
+        });
+      } catch (error) {
+        console.error('[API] Failed to fetch revision:', error);
+        res.status(500).json({ error: 'Failed to fetch revision' });
+      }
+    });
+
     // Get active tasks
     this.app.get('/api/tasks', (_req: Request, res: Response) => {
       try {
@@ -586,6 +631,46 @@ export class OllieBotServer {
         });
       });
     }
+
+    // Handle message updates - store revisions before updating
+    this.webChannel.onMessageUpdate(async (messageId, newContent, _conversationId) => {
+      try {
+        const db = getDb();
+
+        // Get current message content before updating
+        const currentMessage = db.messages.findById(messageId);
+        if (currentMessage) {
+          // Get next revision number
+          const latestRevNum = db.messageRevisions.getLatestRevisionNumber(messageId);
+          const nextRevNum = latestRevNum + 1;
+
+          // Store current content as a revision
+          const revision = {
+            id: `${messageId}-rev-${nextRevNum}`,
+            messageId,
+            revisionNumber: nextRevNum,
+            content: currentMessage.content,
+            metadata: currentMessage.metadata,
+            createdAt: new Date().toISOString(),
+          };
+          db.messageRevisions.create(revision);
+
+          // Update the message with new content
+          db.messages.update(messageId, { content: newContent });
+
+          console.log(`[Server] Stored revision ${nextRevNum} for message ${messageId}`);
+        }
+      } catch (error) {
+        console.error('[Server] Failed to store message revision:', error);
+      }
+    });
+
+    // Handle applet revision requests from users
+    this.webChannel.onAppletRevision(async (messageId, instructions, conversationId) => {
+      console.log(`[Server] Applet revision request for message ${messageId}: ${instructions}`);
+      // Forward to supervisor to process with LLM
+      await this.supervisor.handleAppletRevision(messageId, instructions, conversationId);
+    });
 
     // Start listening
     return new Promise((resolve) => {

@@ -345,8 +345,37 @@ The agent can update existing messages using the `message_update` WebSocket even
 - Progress updates
 - Correcting mistakes without adding new messages
 
-Backend usage:
+### Inline Revision Input
+
+Each applet has an inline input bar where users can type instructions to modify the applet:
+1. Type your revision instructions (e.g., "make the cells blue instead of green")
+2. Press Enter or click "Revise"
+3. The agent processes your request and updates the applet in place
+
+### Revision History
+
+All message revisions are automatically stored and can be retrieved via the API:
+
+```bash
+# Get all revisions for a message
+GET /api/messages/:messageId/revisions
+
+# Get a specific revision
+GET /api/messages/:messageId/revisions/:revisionNumber
+```
+
+Each revision includes:
+- `id` - Unique revision ID
+- `messageId` - Parent message ID
+- `revisionNumber` - Sequential revision number (1, 2, 3, ...)
+- `content` - The message content at that revision
+- `metadata` - Associated metadata
+- `createdAt` - Timestamp
+
+### Backend Usage
+
 ```typescript
+// Update a message (automatically saves current version as revision)
 channel.updateMessage(messageId, {
   content: 'Updated content with ```applet code block```',
 });

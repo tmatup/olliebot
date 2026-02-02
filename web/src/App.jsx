@@ -1251,7 +1251,7 @@ function App() {
   };
 
   // Render markdown with inline HTML support
-  const renderContent = (content, html = false, isStreaming = false) => {
+  const renderContent = (content, html = false, isStreaming = false, messageId = null, onAppletRevision = null) => {
     return (
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
@@ -1273,7 +1273,14 @@ function App() {
 
               // Check if this is an interactive applet - render with AppletPreview
               if (language === 'applet' || language === 'interactive') {
-                return <AppletPreview code={codeContent} isStreaming={isStreaming} />;
+                return (
+                  <AppletPreview
+                    code={codeContent}
+                    isStreaming={isStreaming}
+                    messageId={messageId}
+                    onRevisionRequest={onAppletRevision}
+                  />
+                );
               }
 
               // Check if this is HTML content - render with HtmlPreview
@@ -1428,6 +1435,16 @@ function App() {
   const handleToggleBrowserSessions = useCallback(() => {
     toggleAccordion('browserSessions');
   }, [toggleAccordion]);
+
+  // Handle applet revision request
+  const handleAppletRevision = useCallback((messageId, instructions) => {
+    sendMessage({
+      type: 'applet-revision',
+      messageId,
+      instructions,
+      conversationId: currentConversationId,
+    });
+  }, [sendMessage, currentConversationId]);
 
   // Get selected browser session object
   const selectedBrowserSession = browserSessions.find(
@@ -1940,7 +1957,7 @@ function App() {
                 {msg.agentName && msg.role === 'assistant' && (
                   <div className="agent-name">{msg.agentName}</div>
                 )}
-                <MessageContent content={msg.content} html={msg.html} isStreaming={msg.isStreaming} />
+                {renderContent(msg.content, msg.html, msg.isStreaming, msg.id, handleAppletRevision)}
                 {msg.attachments && msg.attachments.length > 0 && (
                   <div className="message-attachments">
                     {msg.attachments.map((att, index) => (

@@ -15,24 +15,30 @@ const HEIGHT_STEP = 100;
  * - sandbox="allow-scripts" enables JS but prevents access to parent context
  * - Uses srcdoc for better security than document.write()
  * - Supports keyboard input for interactive applets (games, etc.)
+ * - Includes inline revision input for requesting changes to the applet
  *
  * Supported code block languages: applet, interactive
  *
  * @param {string} code - The HTML/JS code to render
  * @param {boolean} isStreaming - Whether the content is still streaming
  * @param {string} className - Additional CSS classes
+ * @param {string} messageId - The ID of the message containing this applet (for revisions)
+ * @param {function} onRevisionRequest - Callback when user requests a revision
  */
-function AppletPreview({ code, className = '', isStreaming = false }) {
+function AppletPreview({ code, className = '', isStreaming = false, messageId, onRevisionRequest }) {
   const [viewMode, setViewMode] = useState(isStreaming ? 'code' : 'run');
   const [height, setHeight] = useState(DEFAULT_HEIGHT);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isRunning, setIsRunning] = useState(!isStreaming);
   const [key, setKey] = useState(0); // Used to force iframe remount for restart
+  const [revisionInput, setRevisionInput] = useState('');
+  const [isRevising, setIsRevising] = useState(false);
   const prevStreamingRef = useRef(isStreaming);
   const codeRef = useRef(null);
   const iframeRef = useRef(null);
   const modalIframeRef = useRef(null);
   const modalCodeRef = useRef(null);
+  const revisionInputRef = useRef(null);
 
   const increaseHeight = () => setHeight((h) => h + HEIGHT_STEP);
   const decreaseHeight = () => setHeight((h) => Math.max(MIN_HEIGHT, h - HEIGHT_STEP));
@@ -121,6 +127,27 @@ ${code}
     setViewMode('code');
   };
 
+  // Handle revision request submission
+  const handleRevisionSubmit = (e) => {
+    e.preventDefault();
+    if (!revisionInput.trim() || !onRevisionRequest || !messageId) return;
+
+    setIsRevising(true);
+    onRevisionRequest(messageId, revisionInput.trim());
+    setRevisionInput('');
+
+    // Reset revising state after a delay (actual update will come via WebSocket)
+    setTimeout(() => setIsRevising(false), 2000);
+  };
+
+  // Handle Enter key in revision input (Shift+Enter for newline)
+  const handleRevisionKeyDown = (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleRevisionSubmit(e);
+    }
+  };
+
   // Close modal on Escape key
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -165,6 +192,34 @@ ${code}
       style={{ height: inModal ? '100%' : `${height}px` }}
     />
   );
+
+  // Render the revision input bar
+  const renderRevisionInput = () => {
+    if (!messageId || !onRevisionRequest) return null;
+
+    return (
+      <form className="applet-revision-bar" onSubmit={handleRevisionSubmit}>
+        <input
+          ref={revisionInputRef}
+          type="text"
+          className="applet-revision-input"
+          placeholder="Describe changes to this applet..."
+          value={revisionInput}
+          onChange={(e) => setRevisionInput(e.target.value)}
+          onKeyDown={handleRevisionKeyDown}
+          disabled={isRevising || isStreaming}
+        />
+        <button
+          type="submit"
+          className="applet-revision-submit"
+          disabled={!revisionInput.trim() || isRevising || isStreaming}
+          title="Request revision"
+        >
+          {isRevising ? '...' : 'Revise'}
+        </button>
+      </form>
+    );
+  };
 
   return (
     <div className={`applet-preview ${className}`}>
@@ -236,6 +291,9 @@ ${code}
         )}
       </div>
 
+      {/* Inline revision input */}
+      {renderRevisionInput()}
+
       {/* Fullscreen Modal */}
       {isFullscreen && (
         <div className="applet-modal-overlay">
@@ -290,6 +348,8 @@ ${code}
                 </pre>
               )}
             </div>
+            {/* Revision input in fullscreen mode too */}
+            {renderRevisionInput()}
           </div>
         </div>
       )}
