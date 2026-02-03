@@ -20,7 +20,12 @@ const PROMPTS_DIR = __dirname;
 export interface SpecialistTemplate {
   type: string;
   identity: Omit<AgentIdentity, 'id'>;
+  /** Tool access patterns (supports wildcards and !exclusions) */
+  canAccessTools: string[];
 }
+
+/** Default tool exclusions for all specialists (supervisor-only tools) */
+const SUPERVISOR_ONLY_TOOLS = ['!native__delegate', '!native__remember'];
 
 /**
  * Built-in specialist templates
@@ -34,6 +39,14 @@ const SPECIALIST_TEMPLATES: SpecialistTemplate[] = [
       role: 'specialist',
       description: 'Specializes in research, information gathering, and analysis',
     },
+    // Researcher: web search, scraping, wikipedia, http
+    canAccessTools: [
+      'native__web-search',
+      'native__web-scrape',
+      'native__wikipedia-search',
+      'native__analyze-image',
+      '*__*', // MCP tools
+    ],
   },
   {
     type: 'coder',
@@ -43,6 +56,13 @@ const SPECIALIST_TEMPLATES: SpecialistTemplate[] = [
       role: 'specialist',
       description: 'Specializes in writing, reviewing, and explaining code',
     },
+    // Coder: web for docs
+    canAccessTools: [
+      'native__web-search',
+      'native__web-scrape',
+      'native__analyze-image',
+      '*__*', // MCP tools (filesystem, etc.)
+    ],
   },
   {
     type: 'writer',
@@ -52,6 +72,14 @@ const SPECIALIST_TEMPLATES: SpecialistTemplate[] = [
       role: 'specialist',
       description: 'Specializes in writing, editing, and content creation',
     },
+    // Writer: web research, image creation for illustrations
+    canAccessTools: [
+      'native__web-search',
+      'native__web-scrape',
+      'native__wikipedia-search',
+      'native__create-image',
+      '*__*', // MCP tools
+    ],
   },
   {
     type: 'planner',
@@ -61,6 +89,13 @@ const SPECIALIST_TEMPLATES: SpecialistTemplate[] = [
       role: 'specialist',
       description: 'Specializes in planning, organizing, and task breakdown',
     },
+    // Planner: research tools for gathering info to plan
+    canAccessTools: [
+      'native__web-search',
+      'native__web-scrape',
+      'native__wikipedia-search',
+      '*__*', // MCP tools
+    ],
   },
 ];
 
@@ -158,6 +193,20 @@ export class AgentRegistry {
   loadAgentPrompt(type: string): string {
     const promptPath = join(PROMPTS_DIR, `${type}.md`);
     return readFileSync(promptPath, 'utf-8').trim();
+  }
+
+  /**
+   * Get tool access patterns for a specialist type
+   * Combines the specialist's allowed tools with supervisor-only exclusions
+   */
+  getToolAccessForSpecialist(type: string): string[] {
+    const template = this.specialists.get(type);
+    if (template) {
+      // Combine specialist's tools with supervisor-only exclusions
+      return [...template.canAccessTools, ...SUPERVISOR_ONLY_TOOLS];
+    }
+    // Default for custom/unknown types: all tools except supervisor-only
+    return ['*', ...SUPERVISOR_ONLY_TOOLS];
   }
 
   // ============================================================================

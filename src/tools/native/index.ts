@@ -13,3 +13,4 @@ export * from './remember.js';
 export * from './read-skill.js';
 export * from './run-skill-script.js';
 export * from './http-client.js';
+export * from './delegate.js';

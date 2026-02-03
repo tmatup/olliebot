@@ -224,37 +224,15 @@ export class SupervisorAgentImpl extends AbstractAgent implements ISupervisorAge
 
         if (tools.length > 0 && this.toolRunner) {
           // Use tool-enabled streaming generation
-          // Buffer to filter out delegation blocks which shouldn't be shown to users
-          let streamBuffer = '';
           const response = await this.llmService.generateWithToolsStream(
             llmMessages,
             {
               onChunk: (chunk: string) => {
                 fullResponse += chunk;
-                streamBuffer += chunk;
-
-                // Check if we're in the middle of a potential delegation block
-                const inDelegateBlock = streamBuffer.includes('```delegate') && !streamBuffer.includes('```delegate\n') ||
-                  streamBuffer.includes('```d') && !streamBuffer.includes('```delegate');
-
-                // If not in a delegation block, send filtered content
-                if (!inDelegateBlock) {
-                  const displayContent = streamBuffer.replace(/```delegate\s*[\s\S]*?```/g, '');
-                  if (displayContent) {
-                    channel.sendStreamChunk!(streamId, displayContent, this.currentConversationId || undefined);
-                  }
-                  streamBuffer = '';
-                }
+                channel.sendStreamChunk!(streamId, chunk, this.currentConversationId || undefined);
               },
               onComplete: () => {
-                // Flush any remaining buffered content (filtered)
-                if (streamBuffer) {
-                  const displayContent = streamBuffer.replace(/```delegate\s*[\s\S]*?```/g, '');
-                  if (displayContent) {
-                    channel.sendStreamChunk!(streamId, displayContent, this.currentConversationId || undefined);
-                  }
-                  streamBuffer = '';
-                }
+                // Stream complete
               },
               onError: (error: Error) => {
                 console.error('[Supervisor] Stream error:', error);
@@ -271,6 +249,37 @@ export class SupervisorAgentImpl extends AbstractAgent implements ISupervisorAge
             );
 
             const results = await this.toolRunner.executeTools(toolRequests);
+
+            // Check if delegate tool was called
+            const delegateResult = results.find(r => r.toolName === 'native__delegate' && r.success);
+            if (delegateResult) {
+              // Extract delegation params from tool output
+              const delegationParams = delegateResult.output as {
+                type: string;
+                mission: string;
+                rationale?: string;
+                customName?: string;
+                customEmoji?: string;
+              };
+
+              // End the stream before delegation
+              channel.endStream!(streamId, this.currentConversationId || undefined);
+
+              // Save any response content before delegation
+              const reasoningMode = message.metadata?.reasoningMode as string | undefined;
+              if (fullResponse.trim()) {
+                this.saveAssistantMessage(message.channel, fullResponse.trim(), reasoningMode);
+              }
+
+              // Perform the delegation
+              await this.handleDelegationFromTool(delegationParams, message, channel);
+
+              // Clean up and return - delegation takes over
+              if (unsubscribeTool) {
+                unsubscribeTool();
+              }
+              return;
+            }
 
             // Add assistant message with tool use to conversation
             llmMessages.push({
@@ -299,37 +308,15 @@ export class SupervisorAgentImpl extends AbstractAgent implements ISupervisorAge
           }
         } else {
           // No tools available, use regular streaming
-          // Buffer to filter out delegation blocks which shouldn't be shown to users
-          let streamBuffer = '';
           await this.llmService.generateStream(
             llmMessages,
             {
               onChunk: (chunk) => {
                 fullResponse += chunk;
-                streamBuffer += chunk;
-
-                // Check if we're in the middle of a potential delegation block
-                const hasPartialDelegate = streamBuffer.includes('```delegate') && !streamBuffer.includes('```delegate') ||
-                  (streamBuffer.includes('```d') && !streamBuffer.includes('```delegate'));
-
-                // If not potentially in a delegation block, send buffered content (minus any trailing partial markers)
-                if (!hasPartialDelegate && !streamBuffer.includes('```delegate')) {
-                  // Remove any delegation blocks that are complete
-                  const displayContent = streamBuffer.replace(/```delegate\s*[\s\S]*?```/g, '');
-                  if (displayContent) {
-                    channel.sendStreamChunk!(streamId, displayContent, this.currentConversationId || undefined);
-                  }
-                  streamBuffer = '';
-                }
+                channel.sendStreamChunk!(streamId, chunk, this.currentConversationId || undefined);
               },
               onComplete: () => {
-                // Send any remaining buffered content (filtered)
-                if (streamBuffer) {
-                  const displayContent = streamBuffer.replace(/```delegate\s*[\s\S]*?```/g, '');
-                  if (displayContent) {
-                    channel.sendStreamChunk!(streamId, displayContent, this.currentConversationId || undefined);
-                  }
-                }
+                // Stream complete
               },
               onError: (error) => {
                 throw error;
@@ -342,17 +329,9 @@ export class SupervisorAgentImpl extends AbstractAgent implements ISupervisorAge
 
       channel.endStream!(streamId, this.currentConversationId || undefined);
 
-      // Check for delegation in complete response
-      const delegationMatch = fullResponse.match(/```delegate\s*([\s\S]*?)```/);
+      // Save the response (delegation is now handled via tool use, not markdown blocks)
       const reasoningMode = message.metadata?.reasoningMode as string | undefined;
-      if (delegationMatch) {
-        // Remove the delegation block from saved response (it's not useful for conversation history)
-        const cleanedResponse = fullResponse.replace(/```delegate\s*[\s\S]*?```/, '').trim();
-        if (cleanedResponse) {
-          this.saveAssistantMessage(message.channel, cleanedResponse, reasoningMode);
-        }
-        await this.handleDelegation(delegationMatch[1], message, channel);
-      } else {
+      if (fullResponse.trim()) {
         this.saveAssistantMessage(message.channel, fullResponse, reasoningMode);
       }
     } catch (error) {
@@ -455,6 +434,103 @@ export class SupervisorAgentImpl extends AbstractAgent implements ISupervisorAge
     }
   }
 
+  /**
+   * Handle delegation from the delegate tool (params already parsed)
+   */
+  private async handleDelegationFromTool(
+    params: {
+      type: string;
+      mission: string;
+      rationale?: string;
+      customName?: string;
+      customEmoji?: string;
+    },
+    originalMessage: Message,
+    channel: Channel
+  ): Promise<void> {
+    const { type, mission, customName, customEmoji, rationale } = params;
+
+    try {
+      // Log agent selection rationale
+      console.log(`[${this.identity.name}] Agent Selection (via tool):`);
+      console.log(`  Type: ${type}`);
+      console.log(`  Rationale: ${rationale || 'Not provided'}`);
+      console.log(`  Mission: ${mission}`);
+
+      // Spawn appropriate agent (pass type explicitly for prompt loading)
+      const agentId = await this.spawnAgent(
+        {
+          identity: this.createAgentIdentity(type, customName, customEmoji),
+          mission,
+        },
+        type
+      );
+
+      const agent = this.subAgents.get(agentId);
+      if (!agent) {
+        throw new Error('Failed to spawn agent');
+      }
+
+      // Pass the current conversationId to the worker agent
+      if (this.currentConversationId) {
+        agent.conversationId = this.currentConversationId;
+      } else {
+        // Ensure we have a conversation before delegating
+        const convId = this.ensureConversation(originalMessage.channel, originalMessage.content);
+        agent.conversationId = convId;
+      }
+
+      // Emit delegation event for compact UI display
+      const webChannel = channel as WebChannel;
+      if (typeof webChannel.broadcast === 'function') {
+        webChannel.broadcast({
+          type: 'delegation',
+          agentId: agent.identity.id,
+          agentName: agent.identity.name,
+          agentEmoji: agent.identity.emoji,
+          agentType: type,
+          mission,
+          rationale,
+          conversationId: this.currentConversationId || undefined,
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      // Persist delegation event to database for reload
+      this.saveDelegationEvent(
+        originalMessage.channel,
+        agent.identity.id,
+        agent.identity.name,
+        agent.identity.emoji,
+        type,
+        mission,
+        rationale
+      );
+
+      // Create task assignment
+      await this.delegateTask(mission);
+
+      // Have the sub-agent handle the message
+      agent.registerChannel(channel);
+      await agent.handleDelegatedTask(originalMessage, mission, channel);
+
+    } catch (error) {
+      console.error(`[${this.identity.name}] Delegation failed:`, error);
+      // Fall back to handling directly
+      const fallbackResponse = await this.generateResponse([
+        ...this.conversationHistory.slice(-10),
+        {
+          id: uuid(),
+          channel: originalMessage.channel,
+          role: 'system',
+          content: 'Delegation failed. Please respond directly to the user.',
+          createdAt: new Date(),
+        },
+      ]);
+      await this.sendToChannel(channel, fallbackResponse, { markdown: true });
+    }
+  }
+
   private createAgentIdentity(
     type: string,
     customName?: string,
@@ -491,6 +567,9 @@ export class SupervisorAgentImpl extends AbstractAgent implements ISupervisorAge
     // Load prompt from .md file via registry
     const systemPrompt = this.agentRegistry.loadAgentPrompt(type) || '';
 
+    // Get tool access for this specialist type from registry
+    const toolAccess = this.agentRegistry.getToolAccessForSpecialist(type);
+
     const config: AgentConfig = {
       identity: partialConfig.identity || {
         id: `worker-${uuid().slice(0, 8)}`,
@@ -501,7 +580,7 @@ export class SupervisorAgentImpl extends AbstractAgent implements ISupervisorAge
       },
       capabilities: {
         canSpawnAgents: false,
-        canAccessTools: [],
+        canAccessTools: toolAccess,
         canUseChannels: ['*'],
         maxConcurrentTasks: 1,
       },

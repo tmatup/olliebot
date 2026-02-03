@@ -32,6 +32,7 @@ import {
   ReadSkillTool,
   RunSkillScriptTool,
   HttpClientTool,
+  DelegateTool,
 } from './tools/index.js';
 import { TaskManager } from './tasks/index.js';
 import { MemoryService } from './memory/index.js';
@@ -353,6 +354,7 @@ async function main(): Promise<void> {
   // Register native tools
   toolRunner.registerNativeTool(new WikipediaSearchTool());
   toolRunner.registerNativeTool(new HttpClientTool());
+  toolRunner.registerNativeTool(new DelegateTool());
 
   // Web search (requires API key)
   if (CONFIG.webSearchApiKey) {

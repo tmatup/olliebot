@@ -80,7 +80,13 @@ export abstract class AbstractAgent implements BaseAgent {
 
   /**
    * Get tools available to this agent for LLM calls
-   * Applies whitelist filtering based on agent capabilities
+   * Applies whitelist/blacklist filtering based on agent capabilities
+   *
+   * Patterns:
+   * - '*' = all tools
+   * - 'native__*' = all native tools
+   * - 'native__web-search' = specific tool
+   * - '!native__delegate' = exclude specific tool (blacklist)
    */
   protected getToolsForLLM(): LLMTool[] {
     if (!this.toolRunner) {
@@ -88,21 +94,35 @@ export abstract class AbstractAgent implements BaseAgent {
     }
 
     const tools = this.toolRunner.getToolsForLLM();
+    const patterns = this.capabilities.canAccessTools;
 
-    // Apply whitelist if specified in capabilities
-    const whitelist = this.capabilities.canAccessTools;
-    if (whitelist.length > 0 && !whitelist.includes('*')) {
-      return tools.filter((t) =>
-        whitelist.some((pattern) => {
-          if (pattern.endsWith('*')) {
-            return t.name.startsWith(pattern.slice(0, -1));
-          }
-          return t.name === pattern || t.name.includes(pattern);
-        })
-      );
+    // No patterns = no tools
+    if (patterns.length === 0) {
+      return [];
     }
 
-    return tools;
+    // Separate inclusion and exclusion patterns
+    const inclusions = patterns.filter(p => !p.startsWith('!'));
+    const exclusions = patterns.filter(p => p.startsWith('!')).map(p => p.slice(1));
+
+    // Helper to check if a tool matches a pattern
+    const matchesPattern = (toolName: string, pattern: string): boolean => {
+      if (pattern === '*') return true;
+      if (pattern.endsWith('*')) {
+        return toolName.startsWith(pattern.slice(0, -1));
+      }
+      return toolName === pattern || toolName.includes(pattern);
+    };
+
+    // Filter tools: must match an inclusion AND not match any exclusion
+    return tools.filter((tool) => {
+      // Check exclusions first
+      if (exclusions.some(pattern => matchesPattern(tool.name, pattern))) {
+        return false;
+      }
+      // Check inclusions
+      return inclusions.some(pattern => matchesPattern(tool.name, pattern));
+    });
   }
 
   registerChannel(channel: Channel): void {
@@ -315,6 +335,7 @@ export interface ExtendedChannel extends Channel {
 export interface SpecialistTemplate {
   type: string;
   identity: Omit<AgentIdentity, 'id'>;
+  canAccessTools: string[];
 }
 
 // Forward declaration - will be implemented in registry.ts
@@ -329,4 +350,5 @@ export interface AgentRegistry {
   getSpecialistTemplate(type: string): SpecialistTemplate | undefined;
   findSpecialistTypeByName(name: string): string | undefined;
   loadAgentPrompt(type: string): string;
+  getToolAccessForSpecialist(type: string): string[];
 }
