@@ -4,11 +4,12 @@
  * Searches the web using multiple provider options:
  * - Serper (serper.dev) - Google Search API
  * - Google Custom Search API
+ * - Tavily (tavily.com) - AI-powered search with answer generation
  */
 
 import type { NativeTool, NativeToolResult } from './types.js';
 
-export type WebSearchProvider = 'serper' | 'google_custom_search';
+export type WebSearchProvider = 'serper' | 'google_custom_search' | 'tavily';
 
 export interface WebSearchConfig {
   provider: WebSearchProvider;
@@ -51,6 +52,17 @@ interface GoogleCustomSearchResponse {
   searchInformation?: {
     totalResults: string;
   };
+}
+
+interface TavilyResponse {
+  query: string;
+  answer?: string;
+  results?: Array<{
+    title: string;
+    url: string;
+    content: string;
+    score: number;
+  }>;
 }
 
 export class WebSearchTool implements NativeTool {
@@ -99,6 +111,9 @@ export class WebSearchTool implements NativeTool {
           break;
         case 'google_custom_search':
           results = await this.searchWithGoogleCustomSearch(query, numResults);
+          break;
+        case 'tavily':
+          ({ results, additionalInfo } = await this.searchWithTavily(query, numResults));
           break;
         default:
           return {
@@ -208,5 +223,48 @@ export class WebSearchTool implements NativeTool {
       snippet: item.snippet,
       position: index + 1,
     }));
+  }
+
+  /**
+   * Search using Tavily API (tavily.com)
+   */
+  private async searchWithTavily(
+    query: string,
+    numResults: number
+  ): Promise<{ results: WebSearchResult[]; additionalInfo: Record<string, unknown> }> {
+    const response = await fetch('https://api.tavily.com/search', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        api_key: this.config.apiKey,
+        query,
+        max_results: numResults,
+        search_depth: "advanced",
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Tavily API error (${response.status}): ${errorText}`);
+    }
+
+    const data = (await response.json()) as TavilyResponse;
+    const additionalInfo: Record<string, unknown> = {};
+
+    // Include AI-generated answer if present
+    if (data.answer) {
+      additionalInfo.answer = data.answer;
+    }
+
+    const results: WebSearchResult[] = (data.results || []).map((item, index) => ({
+      title: item.title,
+      link: item.url,
+      snippet: item.content,
+      position: index + 1,
+    }));
+
+    return { results, additionalInfo };
   }
 }

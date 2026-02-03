@@ -104,7 +104,7 @@ npm run dev:tui
 | `PORT` | Server port | `3000` |
 | `MCP_SERVERS` | JSON array of MCP server configs | `[]` |
 | `WEB_SEARCH_API_KEY` | API key for web search (Serper or Google CSE) | Optional |
-| `WEB_SEARCH_PROVIDER` | Web search provider (`serper` or `google_custom_search`) | `serper` |
+| `WEB_SEARCH_PROVIDER` | Web search provider (`serper`, `tavily`, `google_custom_search`) | `tavily` |
 
 #### Browser Automation
 

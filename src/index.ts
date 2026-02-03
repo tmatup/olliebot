@@ -142,7 +142,7 @@ const CONFIG = {
   imageGenModel: process.env.IMAGE_GEN_MODEL || 'dall-e-3',
 
   // Web search configuration
-  webSearchProvider: (process.env.WEB_SEARCH_PROVIDER || 'serper') as WebSearchProvider,
+  webSearchProvider: (process.env.WEB_SEARCH_PROVIDER || 'tavily') as WebSearchProvider,
   webSearchApiKey: process.env.WEB_SEARCH_API_KEY || '',
   googleCustomSearchEngineId: process.env.GOOGLE_CUSTOM_SEARCH_ENGINE_ID || '',
 };
