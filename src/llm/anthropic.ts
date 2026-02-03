@@ -11,6 +11,7 @@ import type {
 
 // Type alias for Anthropic content block parameters
 type ContentBlockParam = Anthropic.TextBlockParam | Anthropic.ImageBlockParam | Anthropic.ToolUseBlockParam | Anthropic.ToolResultBlockParam;
+const DEBUG_LLM = ['1', 'true', 'yes', 'on'].includes((process.env.DEBUG_LLM || '').toLowerCase());
 
 export class AnthropicProvider implements LLMProvider {
   readonly name = 'anthropic';
@@ -147,16 +148,17 @@ export class AnthropicProvider implements LLMProvider {
       }
     }
 
-    // Log the request for debugging
-    console.log('[Anthropic] streamWithTools request:', {
-      model: this.model,
-      messageCount: conversationMessages.length,
-      toolCount: tools?.length || 0,
-      lastMessageRole: conversationMessages[conversationMessages.length - 1]?.role,
-      lastMessageContentType: Array.isArray(conversationMessages[conversationMessages.length - 1]?.content)
-        ? conversationMessages[conversationMessages.length - 1]?.content.map((c: { type: string }) => c.type)
-        : 'string',
-    });
+    if (DEBUG_LLM) {
+      console.log('[Anthropic] streamWithTools request:', {
+        model: this.model,
+        messageCount: conversationMessages.length,
+        toolCount: tools?.length || 0,
+        lastMessageRole: conversationMessages[conversationMessages.length - 1]?.role,
+        lastMessageContentType: Array.isArray(conversationMessages[conversationMessages.length - 1]?.content)
+          ? conversationMessages[conversationMessages.length - 1]?.content.map((c: { type: string }) => c.type)
+          : 'string',
+      });
+    }
 
     let stream;
     try {
@@ -198,7 +200,9 @@ export class AnthropicProvider implements LLMProvider {
         if (event.delta.type === 'text_delta') {
           const chunk = event.delta.text;
           fullContent += chunk;
-          console.log(`[Anthropic] Streaming chunk (${chunk.length} chars)`);
+          if (DEBUG_LLM) {
+            console.log(`[Anthropic] Streaming chunk (${chunk.length} chars)`);
+          }
           callbacks.onChunk(chunk);
         } else if (event.delta.type === 'input_json_delta' && currentToolUse) {
           currentToolUse.inputJson += event.delta.partial_json;
