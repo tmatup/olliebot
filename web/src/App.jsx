@@ -17,6 +17,7 @@ const MODES = {
 };
 import { BrowserSessions } from './components/BrowserSessions';
 import { BrowserPreview } from './components/BrowserPreview';
+import RAGProjects from './components/RAGProjects';
 
 // Code block component with copy button and language header
 // Memoized to prevent unnecessary re-renders
@@ -196,6 +197,7 @@ function App() {
     mcps: false,
     tools: false,
     browserSessions: false,
+    ragProjects: false,
   });
   const [agentTasks, setAgentTasks] = useState([]);
   const [skills, setSkills] = useState([]);
@@ -208,6 +210,10 @@ function App() {
   const [selectedBrowserSessionId, setSelectedBrowserSessionId] = useState(null);
   const [browserScreenshots, setBrowserScreenshots] = useState({});
   const [clickMarkers, setClickMarkers] = useState([]);
+
+  // RAG projects state
+  const [ragProjects, setRagProjects] = useState([]);
+  const [ragIndexingProgress, setRagIndexingProgress] = useState({}); // { projectId: { status, ... } }
 
   // Actions menu state
   const [openMenuId, setOpenMenuId] = useState(null);
@@ -529,6 +535,74 @@ function App() {
       setTimeout(() => {
         setClickMarkers((prev) => prev.filter((m) => m.id !== marker.id));
       }, 1500);
+    } else if (data.type === 'rag_indexing_started') {
+      // RAG indexing started
+      setRagIndexingProgress((prev) => ({
+        ...prev,
+        [data.projectId]: {
+          status: 'started',
+          totalDocuments: data.totalDocuments,
+          processedDocuments: 0,
+        },
+      }));
+      // Mark project as indexing
+      setRagProjects((prev) =>
+        prev.map((p) =>
+          p.id === data.projectId ? { ...p, isIndexing: true } : p
+        )
+      );
+    } else if (data.type === 'rag_indexing_progress') {
+      // RAG indexing progress update
+      setRagIndexingProgress((prev) => ({
+        ...prev,
+        [data.projectId]: {
+          status: 'processing',
+          totalDocuments: data.totalDocuments,
+          processedDocuments: data.processedDocuments,
+          currentDocument: data.currentDocument,
+        },
+      }));
+    } else if (data.type === 'rag_indexing_completed') {
+      // RAG indexing completed - remove from progress map
+      setRagIndexingProgress((prev) => {
+        const next = { ...prev };
+        delete next[data.projectId];
+        return next;
+      });
+      // Refresh project data
+      fetch('/api/rag/projects')
+        .then((res) => res.ok ? res.json() : [])
+        .then((projects) => setRagProjects(projects))
+        .catch(() => {});
+    } else if (data.type === 'rag_indexing_error') {
+      // RAG indexing error
+      setRagIndexingProgress((prev) => ({
+        ...prev,
+        [data.projectId]: {
+          status: 'error',
+          error: data.error,
+        },
+      }));
+      // Clear progress after a delay
+      setTimeout(() => {
+        setRagIndexingProgress((prev) => {
+          const next = { ...prev };
+          delete next[data.projectId];
+          return next;
+        });
+      }, 5000);
+      // Mark project as not indexing
+      setRagProjects((prev) =>
+        prev.map((p) =>
+          p.id === data.projectId ? { ...p, isIndexing: false } : p
+        )
+      );
+    } else if (data.type === 'rag_projects_changed') {
+      // RAG projects folder changed, refresh list
+      fetch('/api/rag/projects')
+        .then((res) => res.ok ? res.json() : [])
+        .then((projects) => setRagProjects(projects))
+        .catch(() => {});
     }
   }, []);
 
@@ -610,6 +684,7 @@ function App() {
       setSkills(data.skills);
       setMcps(data.mcps);
       setTools(data.tools);
+      setRagProjects(data.ragProjects || []);
     } catch (error) {
       console.error('Failed to load startup data:', error);
       // Set empty states on failure
@@ -1444,6 +1519,26 @@ function App() {
     toggleAccordion('browserSessions');
   }, [toggleAccordion]);
 
+  // Toggle RAG projects accordion
+  const handleToggleRagProjects = useCallback(() => {
+    toggleAccordion('ragProjects');
+  }, [toggleAccordion]);
+
+  // Handle RAG project indexing
+  const handleIndexProject = useCallback(async (projectId) => {
+    try {
+      const res = await fetch(`/api/rag/projects/${projectId}/index`, {
+        method: 'POST',
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        console.error('Failed to start indexing:', data.error);
+      }
+    } catch (error) {
+      console.error('Failed to start indexing:', error);
+    }
+  }, []);
+
   // Get selected browser session object
   const selectedBrowserSession = browserSessions.find(
     (s) => s.id === selectedBrowserSessionId
@@ -1647,6 +1742,15 @@ function App() {
                 </div>
               )}
             </div>
+
+            {/* RAG Projects Accordion */}
+            <RAGProjects
+              projects={ragProjects}
+              indexingProgress={ragIndexingProgress}
+              expanded={expandedAccordions.ragProjects}
+              onToggle={handleToggleRagProjects}
+              onIndex={handleIndexProject}
+            />
 
             {/* Agent Skills Accordion */}
             <div className="accordion">

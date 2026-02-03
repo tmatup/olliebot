@@ -14,3 +14,4 @@ export * from './read-skill.js';
 export * from './run-skill-script.js';
 export * from './http-client.js';
 export * from './delegate.js';
+export * from './query-rag-project.js';

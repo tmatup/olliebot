@@ -61,6 +61,9 @@ export class WorkerAgent extends AbstractAgent {
     this._state.currentTask = mission;
     this.currentTaskId = uuid();
 
+    // Refresh RAG data cache before generating response
+    await this.refreshRagDataCache();
+
     // Notify supervisor we're starting
     await this.sendToAgent(this.parentId, {
       type: 'status_update',

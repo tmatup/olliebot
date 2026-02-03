@@ -17,8 +17,13 @@ import { MCPClient } from './mcp/index.js';
 import type { MCPServerConfig } from './mcp/types.js';
 import { SkillManager } from './skills/index.js';
 import { A2UIManager } from './a2ui/index.js';
-import { RAGService, GoogleEmbeddingProvider } from './rag/index.js';
-import { OpenAIEmbeddingProvider } from './rag/service.js';
+import {
+  RAGProjectService,
+  GoogleEmbeddingProvider,
+  OpenAIEmbeddingProvider,
+  AzureOpenAIEmbeddingProvider,
+  RagDataManager,
+} from './rag-projects/index.js';
 import {
   ToolRunner,
   WebSearchTool,
@@ -33,6 +38,7 @@ import {
   RunSkillScriptTool,
   HttpClientTool,
   DelegateTool,
+  QueryRAGProjectTool,
 } from './tools/index.js';
 import { TaskManager } from './tasks/index.js';
 import { MemoryService } from './memory/index.js';
@@ -114,6 +120,7 @@ const CONFIG = {
   tasksDir: join(process.cwd(), 'user', 'tasks'),
   skillsDir: join(process.cwd(), 'user', 'skills'),
   userToolsDir: join(process.cwd(), 'user', 'tools'),
+  ragDir: join(process.cwd(), 'user', 'rag'),
 
   // LLM Configuration
   // Supported providers: 'anthropic', 'google', 'openai', 'azure_openai'
@@ -209,69 +216,6 @@ function createEmbeddingProvider() {
   }
 }
 
-// Azure OpenAI Embedding Provider
-class AzureOpenAIEmbeddingProvider {
-  private apiKey: string;
-  private endpoint: string;
-  private apiVersion: string;
-  private deploymentName: string;
-
-  constructor(
-    apiKey: string,
-    endpoint: string,
-    apiVersion: string = '2024-02-15-preview',
-    deploymentName: string = 'text-embedding-ada-002'
-  ) {
-    this.apiKey = apiKey;
-    this.endpoint = endpoint;
-    this.apiVersion = apiVersion;
-    this.deploymentName = deploymentName;
-  }
-
-  async embed(text: string): Promise<number[]> {
-    const url = `${this.endpoint}/openai/deployments/${this.deploymentName}/embeddings?api-version=${this.apiVersion}`;
-
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'api-key': this.apiKey,
-      },
-      body: JSON.stringify({ input: text }),
-    });
-
-    if (!response.ok) {
-      throw new Error(`Azure OpenAI embedding error: ${response.status}`);
-    }
-
-    const data = (await response.json()) as { data?: Array<{ embedding: number[] }> };
-    return data.data?.[0]?.embedding || [];
-  }
-
-  async embedBatch(texts: string[]): Promise<number[][]> {
-    const url = `${this.endpoint}/openai/deployments/${this.deploymentName}/embeddings?api-version=${this.apiVersion}`;
-
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'api-key': this.apiKey,
-      },
-      body: JSON.stringify({ input: texts }),
-    });
-
-    if (!response.ok) {
-      throw new Error(`Azure OpenAI embedding error: ${response.status}`);
-    }
-
-    const data = (await response.json()) as { data?: Array<{ embedding: number[] }> };
-    return data.data?.map((item) => item.embedding) || [];
-  }
-
-  getDimensions(): number {
-    return 1536; // Ada-002 dimensions
-  }
-}
 
 async function main(): Promise<void> {
   console.log('🤖 OllieBot Starting...\n');
@@ -335,14 +279,26 @@ async function main(): Promise<void> {
   console.log('[Init] Initializing A2UI manager...');
   const a2uiManager = new A2UIManager();
 
-  // Initialize RAG Service
-  let ragService: RAGService | null = null;
+  // Initialize RAG Project Service (folder-based RAG with vector storage)
+  let ragProjectService: RAGProjectService | null = null;
   const embeddingProvider = createEmbeddingProvider();
   if (embeddingProvider) {
-    console.log(`[Init] Initializing RAG service with ${CONFIG.embeddingProvider} embeddings...`);
-    ragService = new RAGService(embeddingProvider);
+    console.log(`[Init] Initializing RAG project service with ${CONFIG.embeddingProvider} embeddings...`);
+    ragProjectService = new RAGProjectService(CONFIG.ragDir, embeddingProvider);
+    await ragProjectService.init();
+
+    // Set up summarization provider using fast LLM
+    ragProjectService.setSummarizationProvider({
+      async summarize(content: string, prompt: string): Promise<string> {
+        const response = await llmService.quickGenerate([
+          { role: 'user', content: `${prompt}\n\n${content}` },
+        ], { maxTokens: 200 });
+        return response.content.trim();
+      },
+    });
+    console.log('[Init] RAG summarization provider configured');
   } else {
-    console.log('[Init] RAG service disabled (no embedding provider configured)');
+    console.log('[Init] RAG project service disabled (no embedding provider configured)');
   }
 
   // Initialize Tool Runner
@@ -415,6 +371,12 @@ async function main(): Promise<void> {
   toolRunner.registerNativeTool(new BrowserScreenshotTool(browserManager));
   console.log('[Init] Browser tools registered');
 
+  // Register RAG project query tool (if service is available)
+  if (ragProjectService) {
+    toolRunner.registerNativeTool(new QueryRAGProjectTool(ragProjectService));
+    console.log('[Init] RAG query tool registered');
+  }
+
   // Initialize User Tool Manager (watches user/tools for .md tool definitions)
   console.log('[Init] Initializing user tool manager...');
   const userToolManager = new UserToolManager({
@@ -464,6 +426,13 @@ async function main(): Promise<void> {
   supervisor.setToolRunner(toolRunner);
   supervisor.setMemoryService(memoryService);
   supervisor.setSkillManager(skillManager);
+
+  // Set RAG data manager on supervisor (if RAG service is available)
+  if (ragProjectService) {
+    const ragDataManager = new RagDataManager(ragProjectService);
+    supervisor.setRagDataManager(ragDataManager);
+    console.log('[Init] RAG data manager configured');
+  }
 
   // Register with global agent registry
   registry.registerAgent(supervisor);
@@ -619,6 +588,7 @@ async function main(): Promise<void> {
       llmService,
       browserManager,
       taskManager,
+      ragProjectService: ragProjectService || undefined,
       mainProvider: CONFIG.mainProvider,
       mainModel: CONFIG.mainModel,
     });
@@ -685,6 +655,9 @@ async function main(): Promise<void> {
     await taskManager.close();
     await userToolManager.close();
     await skillManager.close();
+    if (ragProjectService) {
+      await ragProjectService.close();
+    }
     await closeDb();
     console.log('[Shutdown] Complete');
     process.exit(0);

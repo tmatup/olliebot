@@ -16,6 +16,9 @@ user/data/*
 user/evaluations/results/
 user/skills/
 
+# RAG project indices (but track sample documents)
+user/rag/
+
 # OS files
 .DS_Store
 Thumbs.db

@@ -15,6 +15,7 @@ import type { LLMService } from '../llm/service.js';
 import type { ToolRunner, LLMTool } from '../tools/index.js';
 import type { MemoryService } from '../memory/service.js';
 import type { SkillManager } from '../skills/manager.js';
+import type { RagDataManager } from '../rag-projects/data-manager.js';
 
 export abstract class AbstractAgent implements BaseAgent {
   readonly identity: AgentIdentity;
@@ -29,6 +30,9 @@ export abstract class AbstractAgent implements BaseAgent {
   protected toolRunner: ToolRunner | null = null;
   protected memoryService: MemoryService | null = null;
   protected skillManager: SkillManager | null = null;
+  protected ragDataManager: RagDataManager | null = null;
+  private ragDataCache: string | null = null;
+  private ragDataCacheTime = 0;
 
   constructor(config: AgentConfig, llmService: LLMService) {
     this.config = config;
@@ -75,6 +79,45 @@ export abstract class AbstractAgent implements BaseAgent {
     const skillCount = manager.getAllMetadata().length;
     if (skillCount > 0) {
       console.log(`[${this.identity.name}] Skill manager configured with ${skillCount} skills`);
+    }
+  }
+
+  /**
+   * Set the RAG data manager for this agent
+   * RAG data is injected into the system prompt if agent has query tool access
+   */
+  setRagDataManager(manager: RagDataManager): void {
+    this.ragDataManager = manager;
+  }
+
+  /**
+   * Refresh the RAG data cache if the agent has query tool access.
+   * Call this before generating responses to ensure fresh data.
+   * Cache expires after 60 seconds.
+   */
+  async refreshRagDataCache(): Promise<void> {
+    if (!this.ragDataManager) {
+      return;
+    }
+
+    // Check if cache is still valid (60 second TTL)
+    const now = Date.now();
+    if (this.ragDataCache !== null && now - this.ragDataCacheTime < 60000) {
+      return;
+    }
+
+    // Check if this agent has access to the RAG query tool
+    if (!this.ragDataManager.hasQueryToolAccess(this.capabilities.canAccessTools)) {
+      this.ragDataCache = null;
+      return;
+    }
+
+    try {
+      this.ragDataCache = await this.ragDataManager.formatForSystemPrompt();
+      this.ragDataCacheTime = now;
+    } catch (error) {
+      console.error(`[${this.identity.name}] Failed to refresh RAG data cache:`, error);
+      this.ragDataCache = null;
     }
   }
 
@@ -278,6 +321,11 @@ export abstract class AbstractAgent implements BaseAgent {
       if (skillInstructions && skillsXml) {
         prompt += `\n\n${skillInstructions}\n\n${skillsXml}`;
       }
+    }
+
+    // Add RAG knowledge base information (if cached and agent has access)
+    if (this.ragDataCache) {
+      prompt += `\n\n${this.ragDataCache}`;
     }
 
     return prompt;

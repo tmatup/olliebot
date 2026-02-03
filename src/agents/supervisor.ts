@@ -130,6 +130,9 @@ export class SupervisorAgentImpl extends AbstractAgent implements ISupervisorAge
     const streamId = uuid();
     let fullResponse = '';
 
+    // Refresh RAG data cache before generating response
+    await this.refreshRagDataCache();
+
     // Setup tool event broadcasting if tool runner is available
     let unsubscribeTool: (() => void) | undefined;
     if (this.toolRunner) {
@@ -602,6 +605,11 @@ export class SupervisorAgentImpl extends AbstractAgent implements ISupervisorAge
     // Pass the tool runner to worker agents so they can use MCP, skills, and native tools
     if (this.toolRunner) {
       agent.setToolRunner(this.toolRunner);
+    }
+
+    // Pass the RAG data manager to worker agents
+    if (this.ragDataManager) {
+      agent.setRagDataManager(this.ragDataManager);
     }
 
     await agent.init();

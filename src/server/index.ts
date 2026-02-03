@@ -14,6 +14,7 @@ import { getModelCapabilities } from '../llm/model-capabilities.js';
 import { setupEvalRoutes } from './eval-routes.js';
 import type { BrowserSessionManager } from '../browser/index.js';
 import type { TaskManager } from '../tasks/index.js';
+import { type RAGProjectService, createRAGProjectRoutes, type IndexingProgress } from '../rag-projects/index.js';
 
 export interface ServerConfig {
   port: number;
@@ -24,6 +25,7 @@ export interface ServerConfig {
   llmService?: LLMService;
   browserManager?: BrowserSessionManager;
   taskManager?: TaskManager;
+  ragProjectService?: RAGProjectService;
   // LLM configuration for model capabilities endpoint
   mainProvider?: string;
   mainModel?: string;
@@ -42,6 +44,7 @@ export class OllieBotServer {
   private llmService?: LLMService;
   private browserManager?: BrowserSessionManager;
   private taskManager?: TaskManager;
+  private ragProjectService?: RAGProjectService;
   private mainProvider?: string;
   private mainModel?: string;
 
@@ -54,6 +57,7 @@ export class OllieBotServer {
     this.llmService = config.llmService;
     this.browserManager = config.browserManager;
     this.taskManager = config.taskManager;
+    this.ragProjectService = config.ragProjectService;
     this.mainProvider = config.mainProvider;
     this.mainModel = config.mainModel;
 
@@ -101,7 +105,7 @@ export class OllieBotServer {
     });
 
     // Consolidated startup endpoint - returns all data needed for initial page load
-    this.app.get('/api/startup', (_req: Request, res: Response) => {
+    this.app.get('/api/startup', async (_req: Request, res: Response) => {
       try {
         const db = getDb();
 
@@ -246,6 +250,33 @@ export class OllieBotServer {
           }
         }
 
+        // 8. RAG Projects
+        let ragProjects: Array<{
+          id: string;
+          name: string;
+          documentCount: number;
+          indexedCount: number;
+          vectorCount: number;
+          lastIndexedAt?: string;
+          isIndexing: boolean;
+        }> = [];
+        if (this.ragProjectService) {
+          try {
+            const projects = await this.ragProjectService.listProjects();
+            ragProjects = projects.map(p => ({
+              id: p.id,
+              name: p.name,
+              documentCount: p.documentCount,
+              indexedCount: p.indexedCount,
+              vectorCount: p.vectorCount,
+              lastIndexedAt: p.lastIndexedAt,
+              isIndexing: this.ragProjectService!.isIndexing(p.id),
+            }));
+          } catch (error) {
+            console.warn('[API] Failed to load RAG projects:', error);
+          }
+        }
+
         res.json({
           modelCapabilities,
           conversations,
@@ -254,6 +285,7 @@ export class OllieBotServer {
           skills,
           mcps,
           tools: { builtin, user, mcp },
+          ragProjects,
         });
       } catch (error) {
         console.error('[API] Startup data fetch failed:', error);
@@ -731,6 +763,13 @@ export class OllieBotServer {
       });
       console.log('[Server] Evaluation routes enabled');
     }
+
+    // Setup RAG project routes
+    if (this.ragProjectService) {
+      const ragRoutes = createRAGProjectRoutes(this.ragProjectService);
+      this.app.use('/api/rag', ragRoutes);
+      console.log('[Server] RAG project routes enabled');
+    }
   }
 
   async start(): Promise<void> {
@@ -764,6 +803,37 @@ export class OllieBotServer {
         this.webChannel.broadcast({
           type: 'task_updated',
           task,
+        });
+      });
+    }
+
+    // Listen for RAG project indexing progress
+    if (this.ragProjectService) {
+      this.ragProjectService.on('indexing_progress', (progress: IndexingProgress) => {
+        // Map internal event names to WebSocket event types
+        const eventTypeMap: Record<string, string> = {
+          started: 'rag_indexing_started',
+          processing: 'rag_indexing_progress',
+          completed: 'rag_indexing_completed',
+          error: 'rag_indexing_error',
+        };
+
+        this.webChannel.broadcast({
+          type: eventTypeMap[progress.status] || 'rag_indexing_progress',
+          projectId: progress.projectId,
+          totalDocuments: progress.totalDocuments,
+          processedDocuments: progress.processedDocuments,
+          currentDocument: progress.currentDocument,
+          error: progress.error,
+          timestamp: progress.timestamp,
+        });
+      });
+
+      // Listen for project changes
+      this.ragProjectService.on('projects_changed', () => {
+        this.webChannel.broadcast({
+          type: 'rag_projects_changed',
+          timestamp: new Date().toISOString(),
         });
       });
     }
