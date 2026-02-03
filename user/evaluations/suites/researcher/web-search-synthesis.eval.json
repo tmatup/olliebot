@@ -1,0 +1,129 @@
+{
+  "version": "1.0",
+
+  "metadata": {
+    "id": "researcher-web-search-001",
+    "name": "Web Search Synthesis",
+    "description": "Evaluates researcher agent's ability to effectively use web search and synthesize results",
+    "target": "sub-agent:researcher",
+    "tags": ["researcher", "web-search", "synthesis"]
+  },
+
+  "target": {
+    "source": "file",
+    "prompt": "researcher.md"
+  },
+
+  "testCase": {
+    "userPrompt": "What are the latest developments in renewable energy technology?",
+    "history": []
+  },
+
+  "toolExpectations": {
+    "expectedTools": [
+      {
+        "name": "native__web_search",
+        "required": true,
+        "parameters": {
+          "query": {
+            "matchType": "contains",
+            "expected": "renewable energy"
+          }
+        }
+      }
+    ],
+    "forbiddenTools": []
+  },
+
+  "mockedOutputs": {
+    "native__web_search": {
+      "success": true,
+      "output": {
+        "query": "latest renewable energy technology developments",
+        "provider": "serper",
+        "results": [
+          {
+            "title": "Solar Panel Efficiency Breakthrough",
+            "link": "https://example.com/solar-breakthrough",
+            "snippet": "New perovskite-silicon tandem solar cells achieve 33% efficiency, surpassing traditional silicon panels. Commercial production expected by 2025.",
+            "position": 1
+          },
+          {
+            "title": "Offshore Wind Capacity Doubles",
+            "link": "https://example.com/offshore-wind",
+            "snippet": "Global offshore wind capacity reached 64 GW in 2023. Floating wind turbines now operational in deeper waters, opening new installation sites.",
+            "position": 2
+          },
+          {
+            "title": "Green Hydrogen Production Advances",
+            "link": "https://example.com/green-hydrogen",
+            "snippet": "Electrolyzer costs dropped 40% in two years. Major projects in Australia and Chile aim to produce green hydrogen at $2/kg by 2026.",
+            "position": 3
+          }
+        ],
+        "totalResults": 25
+      }
+    }
+  },
+
+  "responseExpectations": {
+    "requiredElements": [
+      {
+        "id": "multiple-technologies",
+        "description": "Covers multiple renewable technologies",
+        "matchType": "semantic",
+        "value": "discusses more than one type of renewable energy like solar, wind, or hydrogen",
+        "weight": 1.0
+      },
+      {
+        "id": "recent-developments",
+        "description": "Mentions recent advances or statistics",
+        "matchType": "semantic",
+        "value": "includes specific developments, numbers, or recent achievements",
+        "weight": 1.0
+      }
+    ],
+    "optionalElements": [
+      {
+        "id": "future-outlook",
+        "description": "Provides future perspective",
+        "matchType": "semantic",
+        "value": "discusses future expectations or upcoming milestones",
+        "weight": 0.5
+      },
+      {
+        "id": "coherent-synthesis",
+        "description": "Synthesizes rather than just lists",
+        "matchType": "semantic",
+        "value": "connects information into a coherent narrative",
+        "weight": 0.5
+      }
+    ],
+    "constraints": {
+      "minLength": 200,
+      "maxLength": 2500
+    }
+  },
+
+  "delegationExpectations": {
+    "shouldDelegate": false
+  },
+
+  "scoring": {
+    "toolSelection": {
+      "weight": 0.3,
+      "criteria": {
+        "correct_tools_called": 0.6,
+        "correct_parameters": 0.4
+      }
+    },
+    "responseQuality": {
+      "weight": 0.7,
+      "criteria": {
+        "required_elements": 0.6,
+        "optional_elements": 0.3,
+        "constraints_met": 0.1
+      }
+    }
+  }
+}

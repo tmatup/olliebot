@@ -1,0 +1,96 @@
+{
+  "version": "1.0",
+
+  "metadata": {
+    "id": "planner-task-breakdown-001",
+    "name": "Task Breakdown",
+    "description": "Evaluates planner agent's ability to break down complex tasks into actionable steps",
+    "target": "sub-agent:planner",
+    "tags": ["planner", "breakdown", "tasks"]
+  },
+
+  "target": {
+    "source": "file",
+    "prompt": "planner.md"
+  },
+
+  "testCase": {
+    "userPrompt": "Break down the task of organizing a company team-building event for 50 people into specific actionable steps.",
+    "history": []
+  },
+
+  "toolExpectations": {
+    "expectedTools": [],
+    "forbiddenTools": ["native__web_search"]
+  },
+
+  "mockedOutputs": {},
+
+  "responseExpectations": {
+    "requiredElements": [
+      {
+        "id": "multiple-steps",
+        "description": "Provides multiple actionable steps",
+        "matchType": "semantic",
+        "value": "lists at least 5 distinct steps or tasks",
+        "weight": 1.0
+      },
+      {
+        "id": "actionable",
+        "description": "Steps are actionable",
+        "matchType": "semantic",
+        "value": "each step is concrete and can be acted upon",
+        "weight": 1.0
+      },
+      {
+        "id": "covers-key-areas",
+        "description": "Covers key planning areas",
+        "matchType": "semantic",
+        "value": "addresses venue, activities, budget, logistics, or communication",
+        "weight": 0.8
+      }
+    ],
+    "optionalElements": [
+      {
+        "id": "logical-order",
+        "description": "Steps in logical order",
+        "matchType": "semantic",
+        "value": "arranges steps in a sensible sequence",
+        "weight": 0.5
+      },
+      {
+        "id": "considerations",
+        "description": "Includes important considerations",
+        "matchType": "semantic",
+        "value": "mentions dietary restrictions, accessibility, or group size factors",
+        "weight": 0.4
+      }
+    ],
+    "constraints": {
+      "minLength": 200,
+      "maxLength": 2500
+    }
+  },
+
+  "delegationExpectations": {
+    "shouldDelegate": false
+  },
+
+  "scoring": {
+    "toolSelection": {
+      "weight": 0.1,
+      "criteria": {
+        "correct_tools_called": 0.5,
+        "no_forbidden_tools": 0.5
+      }
+    },
+    "responseQuality": {
+      "weight": 0.9,
+      "criteria": {
+        "required_elements": 0.6,
+        "optional_elements": 0.3,
+        "constraints_met": 0.1
+      }
+    }
+  }
+}

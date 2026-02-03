@@ -1,0 +1,116 @@
+{
+  "version": "1.0",
+
+  "metadata": {
+    "id": "researcher-fact-verification-001",
+    "name": "Fact Verification",
+    "description": "Evaluates researcher agent's ability to verify facts and distinguish reliable information",
+    "target": "sub-agent:researcher",
+    "tags": ["researcher", "fact-check", "verification"]
+  },
+
+  "target": {
+    "source": "file",
+    "prompt": "researcher.md"
+  },
+
+  "testCase": {
+    "userPrompt": "Is it true that the Great Wall of China is visible from space? Please verify this claim.",
+    "history": []
+  },
+
+  "toolExpectations": {
+    "expectedTools": [
+      {
+        "name": "native__web_search",
+        "required": true,
+        "parameters": {
+          "query": {
+            "matchType": "semantic",
+            "expected": "Great Wall China visible space"
+          }
+        }
+      }
+    ],
+    "forbiddenTools": []
+  },
+
+  "mockedOutputs": {
+    "native__web_search": {
+      "success": true,
+      "output": {
+        "query": "Great Wall of China visible from space fact check",
+        "provider": "serper",
+        "results": [
+          {
+            "title": "NASA: Great Wall of China Not Visible from Space",
+            "link": "https://example.com/nasa-great-wall",
+            "snippet": "NASA confirms the Great Wall of China is not visible from low Earth orbit with the naked eye. The wall is too narrow (about 15 feet wide) to be distinguished from surrounding terrain.",
+            "position": 1
+          },
+          {
+            "title": "Debunking the Great Wall Myth - Scientific American",
+            "link": "https://example.com/great-wall-myth",
+            "snippet": "This popular myth has been debunked by multiple astronauts. While the wall is long, its width makes it impossible to see without aid. City lights and highways are more visible.",
+            "position": 2
+          }
+        ],
+        "totalResults": 12
+      }
+    }
+  },
+
+  "responseExpectations": {
+    "requiredElements": [
+      {
+        "id": "correct-answer",
+        "description": "Correctly identifies the claim as false",
+        "matchType": "semantic",
+        "value": "states that the Great Wall is not visible from space or the claim is a myth",
+        "weight": 1.0
+      },
+      {
+        "id": "evidence",
+        "description": "Provides evidence for the conclusion",
+        "matchType": "semantic",
+        "value": "cites NASA, astronauts, or explains why (width, resolution)",
+        "weight": 1.0
+      }
+    ],
+    "optionalElements": [
+      {
+        "id": "context",
+        "description": "Provides additional context",
+        "matchType": "semantic",
+        "value": "explains what is actually visible from space or the origin of the myth",
+        "weight": 0.5
+      }
+    ],
+    "constraints": {
+      "minLength": 100,
+      "maxLength": 1500
+    }
+  },
+
+  "delegationExpectations": {
+    "shouldDelegate": false
+  },
+
+  "scoring": {
+    "toolSelection": {
+      "weight": 0.3,
+      "criteria": {
+        "correct_tools_called": 0.7,
+        "correct_parameters": 0.3
+      }
+    },
+    "responseQuality": {
+      "weight": 0.7,
+      "criteria": {
+        "required_elements": 0.7,
+        "optional_elements": 0.2,
+        "constraints_met": 0.1
+      }
+    }
+  }
+}

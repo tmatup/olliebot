@@ -1,0 +1,123 @@
+{
+  "version": "1.0",
+
+  "metadata": {
+    "id": "supervisor-tool-selection-001",
+    "name": "Appropriate Tool Selection",
+    "description": "Evaluates supervisor's ability to select and use appropriate tools for a task",
+    "target": "supervisor",
+    "tags": ["tools", "web-search", "information"]
+  },
+
+  "target": {
+    "source": "file",
+    "prompt": "supervisor.md"
+  },
+
+  "testCase": {
+    "userPrompt": "What's the current weather like in New York City?",
+    "history": []
+  },
+
+  "toolExpectations": {
+    "expectedTools": [
+      {
+        "name": "native__web_search",
+        "required": true,
+        "parameters": {
+          "query": {
+            "matchType": "contains",
+            "expected": "weather"
+          }
+        }
+      }
+    ],
+    "forbiddenTools": ["native__spawn_agent"]
+  },
+
+  "mockedOutputs": {
+    "native__web_search": {
+      "success": true,
+      "output": {
+        "query": "current weather New York City",
+        "provider": "serper",
+        "results": [
+          {
+            "title": "New York City Weather - Weather.com",
+            "link": "https://example.com/nyc-weather",
+            "snippet": "Current conditions in New York City: 72°F (22°C), partly cloudy with light winds from the southwest at 8 mph. Humidity at 45%.",
+            "position": 1
+          },
+          {
+            "title": "NYC 10-Day Forecast",
+            "link": "https://example.com/nyc-forecast",
+            "snippet": "Today's forecast: High of 75°F, low of 62°F. Expect mostly sunny skies with a slight chance of evening showers.",
+            "position": 2
+          }
+        ],
+        "totalResults": 15
+      }
+    }
+  },
+
+  "responseExpectations": {
+    "requiredElements": [
+      {
+        "id": "temperature",
+        "description": "Mentions the temperature",
+        "matchType": "semantic",
+        "value": "includes temperature information in Fahrenheit or Celsius",
+        "weight": 1.0
+      },
+      {
+        "id": "conditions",
+        "description": "Describes weather conditions",
+        "matchType": "semantic",
+        "value": "mentions sky conditions like cloudy, sunny, or precipitation",
+        "weight": 0.8
+      }
+    ],
+    "optionalElements": [
+      {
+        "id": "additional-details",
+        "description": "Includes additional weather details",
+        "matchType": "semantic",
+        "value": "mentions humidity, wind, or forecast",
+        "weight": 0.5
+      }
+    ],
+    "constraints": {
+      "maxLength": 1000,
+      "minLength": 30
+    }
+  },
+
+  "delegationExpectations": {
+    "shouldDelegate": false
+  },
+
+  "scoring": {
+    "toolSelection": {
+      "weight": 0.4,
+      "criteria": {
+        "correct_tools_called": 0.6,
+        "correct_parameters": 0.3,
+        "no_forbidden_tools": 0.1
+      }
+    },
+    "responseQuality": {
+      "weight": 0.5,
+      "criteria": {
+        "required_elements": 0.7,
+        "optional_elements": 0.2,
+        "constraints_met": 0.1
+      }
+    },
+    "delegationAccuracy": {
+      "weight": 0.1,
+      "criteria": {
+        "correct_delegation_decision": 1.0
+      }
+    }
+  }
+}

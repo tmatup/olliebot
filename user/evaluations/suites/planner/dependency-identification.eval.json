@@ -1,0 +1,95 @@
+{
+  "version": "1.0",
+
+  "metadata": {
+    "id": "planner-dependencies-001",
+    "name": "Dependency Identification",
+    "description": "Evaluates planner agent's ability to identify task dependencies",
+    "target": "sub-agent:planner",
+    "tags": ["planner", "dependencies", "sequencing"]
+  },
+
+  "target": {
+    "source": "file",
+    "prompt": "planner.md"
+  },
+
+  "testCase": {
+    "userPrompt": "I need to renovate my kitchen. Help me identify which tasks depend on others being completed first. Consider things like demolition, plumbing, electrical, cabinets, countertops, flooring, and appliances.",
+    "history": []
+  },
+
+  "toolExpectations": {
+    "expectedTools": [],
+    "forbiddenTools": []
+  },
+
+  "mockedOutputs": {},
+
+  "responseExpectations": {
+    "requiredElements": [
+      {
+        "id": "identifies-dependencies",
+        "description": "Identifies task dependencies",
+        "matchType": "semantic",
+        "value": "explains which tasks must come before others",
+        "weight": 1.0
+      },
+      {
+        "id": "logical-sequence",
+        "description": "Provides logical sequence",
+        "matchType": "semantic",
+        "value": "orders tasks correctly (e.g., demolition before plumbing, flooring before cabinets or vice versa)",
+        "weight": 1.0
+      },
+      {
+        "id": "explains-why",
+        "description": "Explains reasoning",
+        "matchType": "semantic",
+        "value": "explains why certain tasks must precede others",
+        "weight": 0.8
+      }
+    ],
+    "optionalElements": [
+      {
+        "id": "parallel-tasks",
+        "description": "Identifies parallel opportunities",
+        "matchType": "semantic",
+        "value": "notes tasks that can be done simultaneously",
+        "weight": 0.5
+      },
+      {
+        "id": "critical-path",
+        "description": "Identifies critical path",
+        "matchType": "semantic",
+        "value": "highlights tasks that impact overall timeline",
+        "weight": 0.4
+      }
+    ],
+    "constraints": {
+      "minLength": 200,
+      "maxLength": 2500
+    }
+  },
+
+  "delegationExpectations": {
+    "shouldDelegate": false
+  },
+
+  "scoring": {
+    "toolSelection": {
+      "weight": 0.1,
+      "criteria": {
+        "correct_tools_called": 1.0
+      }
+    },
+    "responseQuality": {
+      "weight": 0.9,
+      "criteria": {
+        "required_elements": 0.6,
+        "optional_elements": 0.3,
+        "constraints_met": 0.1
+      }
+    }
+  }
+}

@@ -1,0 +1,95 @@
+{
+  "version": "1.0",
+
+  "metadata": {
+    "id": "planner-prioritization-001",
+    "name": "Task Prioritization",
+    "description": "Evaluates planner agent's ability to prioritize tasks effectively",
+    "target": "sub-agent:planner",
+    "tags": ["planner", "prioritization", "urgency"]
+  },
+
+  "target": {
+    "source": "file",
+    "prompt": "planner.md"
+  },
+
+  "testCase": {
+    "userPrompt": "I have the following tasks and need help prioritizing them:\n- Prepare quarterly report (due in 2 days)\n- Review job applications (ongoing)\n- Fix critical bug in production (affecting customers now)\n- Plan next month's marketing campaign\n- Respond to partner inquiry (received yesterday)\n- Update team documentation",
+    "history": []
+  },
+
+  "toolExpectations": {
+    "expectedTools": [],
+    "forbiddenTools": []
+  },
+
+  "mockedOutputs": {},
+
+  "responseExpectations": {
+    "requiredElements": [
+      {
+        "id": "priority-order",
+        "description": "Provides priority ordering",
+        "matchType": "semantic",
+        "value": "ranks or orders the tasks by priority",
+        "weight": 1.0
+      },
+      {
+        "id": "critical-bug-high",
+        "description": "Prioritizes critical bug appropriately",
+        "matchType": "semantic",
+        "value": "places the production bug as high or highest priority",
+        "weight": 1.0
+      },
+      {
+        "id": "reasoning",
+        "description": "Explains prioritization reasoning",
+        "matchType": "semantic",
+        "value": "explains why tasks are prioritized as they are",
+        "weight": 0.8
+      }
+    ],
+    "optionalElements": [
+      {
+        "id": "urgency-importance",
+        "description": "Uses urgency/importance framework",
+        "matchType": "semantic",
+        "value": "considers both urgency and importance factors",
+        "weight": 0.5
+      },
+      {
+        "id": "time-recommendations",
+        "description": "Suggests time allocation",
+        "matchType": "semantic",
+        "value": "recommends when or how long to spend on tasks",
+        "weight": 0.4
+      }
+    ],
+    "constraints": {
+      "minLength": 150,
+      "maxLength": 2000
+    }
+  },
+
+  "delegationExpectations": {
+    "shouldDelegate": false
+  },
+
+  "scoring": {
+    "toolSelection": {
+      "weight": 0.1,
+      "criteria": {
+        "correct_tools_called": 1.0
+      }
+    },
+    "responseQuality": {
+      "weight": 0.9,
+      "criteria": {
+        "required_elements": 0.6,
+        "optional_elements": 0.3,
+        "constraints_met": 0.1
+      }
+    }
+  }
+}

@@ -12,8 +12,9 @@ web/dist/
 .env.local
 
 # Database
-user/
-user/data/*.json
+user/data/*
+user/evaluations/results/
+user/skills/
 
 # OS files
 .DS_Store

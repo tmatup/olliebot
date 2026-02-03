@@ -1,0 +1,88 @@
+{
+  "version": "1.0",
+
+  "metadata": {
+    "id": "writer-editing-001",
+    "name": "Content Editing",
+    "description": "Evaluates writer agent's ability to edit and improve existing text",
+    "target": "sub-agent:writer",
+    "tags": ["writer", "editing", "improvement"]
+  },
+
+  "target": {
+    "source": "file",
+    "prompt": "writer.md"
+  },
+
+  "testCase": {
+    "userPrompt": "Please edit this paragraph to make it clearer and more concise:\n\n\"Our company is really very committed to providing the best possible customer service experience to all of our valued customers. We believe that customer satisfaction is extremely important and we will always try our best to make sure that every single customer is completely happy with their purchase and the service they receive from us.\"",
+    "history": []
+  },
+
+  "toolExpectations": {
+    "expectedTools": [],
+    "forbiddenTools": []
+  },
+
+  "mockedOutputs": {},
+
+  "responseExpectations": {
+    "requiredElements": [
+      {
+        "id": "shorter",
+        "description": "Makes text more concise",
+        "matchType": "semantic",
+        "value": "reduces wordiness and redundancy",
+        "weight": 1.0
+      },
+      {
+        "id": "clearer",
+        "description": "Improves clarity",
+        "matchType": "semantic",
+        "value": "maintains or improves the core message while simplifying",
+        "weight": 1.0
+      },
+      {
+        "id": "preserves-meaning",
+        "description": "Preserves original meaning",
+        "matchType": "semantic",
+        "value": "keeps the customer service commitment message",
+        "weight": 0.8
+      }
+    ],
+    "optionalElements": [
+      {
+        "id": "explains-changes",
+        "description": "Explains the changes made",
+        "matchType": "semantic",
+        "value": "describes what was changed and why",
+        "weight": 0.5
+      }
+    ],
+    "constraints": {
+      "minLength": 50,
+      "maxLength": 1500
+    }
+  },
+
+  "delegationExpectations": {
+    "shouldDelegate": false
+  },
+
+  "scoring": {
+    "toolSelection": {
+      "weight": 0.1,
+      "criteria": {
+        "correct_tools_called": 1.0
+      }
+    },
+    "responseQuality": {
+      "weight": 0.9,
+      "criteria": {
+        "required_elements": 0.7,
+        "optional_elements": 0.2,
+        "constraints_met": 0.1
+      }
+    }
+  }
+}

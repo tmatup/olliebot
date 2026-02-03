@@ -1,0 +1,95 @@
+{
+  "version": "1.0",
+
+  "metadata": {
+    "id": "writer-creative-001",
+    "name": "Creative Writing",
+    "description": "Evaluates writer agent's creative writing abilities",
+    "target": "sub-agent:writer",
+    "tags": ["writer", "creative", "storytelling"]
+  },
+
+  "target": {
+    "source": "file",
+    "prompt": "writer.md"
+  },
+
+  "testCase": {
+    "userPrompt": "Write a short opening paragraph for a mystery story set in a small coastal town. Make it atmospheric and intriguing.",
+    "history": []
+  },
+
+  "toolExpectations": {
+    "expectedTools": [],
+    "forbiddenTools": []
+  },
+
+  "mockedOutputs": {},
+
+  "responseExpectations": {
+    "requiredElements": [
+      {
+        "id": "coastal-setting",
+        "description": "Establishes coastal setting",
+        "matchType": "semantic",
+        "value": "describes or evokes a coastal town environment",
+        "weight": 1.0
+      },
+      {
+        "id": "atmospheric",
+        "description": "Creates atmosphere",
+        "matchType": "semantic",
+        "value": "uses descriptive language to create mood or atmosphere",
+        "weight": 1.0
+      },
+      {
+        "id": "mystery-element",
+        "description": "Includes mystery element",
+        "matchType": "semantic",
+        "value": "hints at mystery, intrigue, or something unusual",
+        "weight": 1.0
+      }
+    ],
+    "optionalElements": [
+      {
+        "id": "hook",
+        "description": "Creates a compelling hook",
+        "matchType": "semantic",
+        "value": "makes reader want to continue reading",
+        "weight": 0.5
+      },
+      {
+        "id": "sensory-details",
+        "description": "Uses sensory details",
+        "matchType": "semantic",
+        "value": "includes visual, auditory, or other sensory descriptions",
+        "weight": 0.4
+      }
+    ],
+    "constraints": {
+      "minLength": 100,
+      "maxLength": 1000
+    }
+  },
+
+  "delegationExpectations": {
+    "shouldDelegate": false
+  },
+
+  "scoring": {
+    "toolSelection": {
+      "weight": 0.1,
+      "criteria": {
+        "correct_tools_called": 1.0
+      }
+    },
+    "responseQuality": {
+      "weight": 0.9,
+      "criteria": {
+        "required_elements": 0.6,
+        "optional_elements": 0.3,
+        "constraints_met": 0.1
+      }
+    }
+  }
+}

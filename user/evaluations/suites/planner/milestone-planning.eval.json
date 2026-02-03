@@ -1,0 +1,95 @@
+{
+  "version": "1.0",
+
+  "metadata": {
+    "id": "planner-milestones-001",
+    "name": "Milestone Planning",
+    "description": "Evaluates planner agent's ability to define project milestones",
+    "target": "sub-agent:planner",
+    "tags": ["planner", "milestones", "progress"]
+  },
+
+  "target": {
+    "source": "file",
+    "prompt": "planner.md"
+  },
+
+  "testCase": {
+    "userPrompt": "I'm building an e-commerce website from scratch. Define the key milestones I should track to measure progress from start to launch.",
+    "history": []
+  },
+
+  "toolExpectations": {
+    "expectedTools": [],
+    "forbiddenTools": []
+  },
+
+  "mockedOutputs": {},
+
+  "responseExpectations": {
+    "requiredElements": [
+      {
+        "id": "multiple-milestones",
+        "description": "Defines multiple milestones",
+        "matchType": "semantic",
+        "value": "provides at least 4-5 distinct milestones",
+        "weight": 1.0
+      },
+      {
+        "id": "covers-project-phases",
+        "description": "Covers key project phases",
+        "matchType": "semantic",
+        "value": "addresses design, development, testing, and launch phases",
+        "weight": 1.0
+      },
+      {
+        "id": "measurable",
+        "description": "Milestones are measurable",
+        "matchType": "semantic",
+        "value": "milestones are specific enough to know when achieved",
+        "weight": 0.8
+      }
+    ],
+    "optionalElements": [
+      {
+        "id": "ecommerce-specific",
+        "description": "Includes e-commerce specifics",
+        "matchType": "semantic",
+        "value": "mentions payment integration, product catalog, or checkout",
+        "weight": 0.5
+      },
+      {
+        "id": "deliverables",
+        "description": "Specifies deliverables",
+        "matchType": "semantic",
+        "value": "describes what is delivered at each milestone",
+        "weight": 0.4
+      }
+    ],
+    "constraints": {
+      "minLength": 200,
+      "maxLength": 2500
+    }
+  },
+
+  "delegationExpectations": {
+    "shouldDelegate": false
+  },
+
+  "scoring": {
+    "toolSelection": {
+      "weight": 0.1,
+      "criteria": {
+        "correct_tools_called": 1.0
+      }
+    },
+    "responseQuality": {
+      "weight": 0.9,
+      "criteria": {
+        "required_elements": 0.6,
+        "optional_elements": 0.3,
+        "constraints_met": 0.1
+      }
+    }
+  }
+}

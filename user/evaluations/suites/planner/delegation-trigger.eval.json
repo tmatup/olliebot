@@ -1,0 +1,97 @@
+{
+  "version": "1.0",
+
+  "metadata": {
+    "id": "planner-delegation-trigger-001",
+    "name": "Planner Delegation Trigger",
+    "description": "Evaluates that supervisor correctly delegates planning tasks to the planner agent",
+    "target": "supervisor",
+    "tags": ["delegation", "planner", "trigger"]
+  },
+
+  "target": {
+    "source": "file",
+    "prompt": "supervisor.md"
+  },
+
+  "testCase": {
+    "userPrompt": "I need to plan a mobile app launch. Can you create a detailed project plan with all the steps, dependencies, and a timeline for the next 3 months?",
+    "history": []
+  },
+
+  "toolExpectations": {
+    "expectedTools": [
+      {
+        "name": "native__delegate",
+        "required": true,
+        "parameters": {
+          "type": {
+            "matchType": "exact",
+            "expected": "planner"
+          }
+        }
+      }
+    ],
+    "forbiddenTools": []
+  },
+
+  "mockedOutputs": {
+    "native__delegate": {
+      "success": true,
+      "output": {
+        "delegated": true,
+        "type": "planner",
+        "mission": "Create a detailed project plan for a mobile app launch with steps, dependencies, and a 3-month timeline"
+      }
+    }
+  },
+
+  "responseExpectations": {
+    "requiredElements": [],
+    "optionalElements": [
+      {
+        "id": "acknowledges-delegation",
+        "description": "Acknowledges delegating to planner",
+        "matchType": "semantic",
+        "value": "indicates task is being handled by a planner or planning agent",
+        "weight": 0.5
+      }
+    ],
+    "constraints": {
+      "maxLength": 5000,
+      "minLength": 0
+    }
+  },
+
+  "delegationExpectations": {
+    "shouldDelegate": true,
+    "expectedAgentType": "planner",
+    "delegationRationaleShouldMention": ["plan", "project", "organize", "timeline"]
+  },
+
+  "scoring": {
+    "toolSelection": {
+      "weight": 0.4,
+      "criteria": {
+        "correct_tools_called": 0.7,
+        "correct_parameters": 0.3
+      }
+    },
+    "responseQuality": {
+      "weight": 0.1,
+      "criteria": {
+        "required_elements": 0.5,
+        "optional_elements": 0.4,
+        "constraints_met": 0.1
+      }
+    },
+    "delegationAccuracy": {
+      "weight": 0.5,
+      "criteria": {
+        "correct_delegation_decision": 0.5,
+        "correct_agent_type": 0.4,
+        "quality_rationale": 0.1
+      }
+    }
+  }
+}

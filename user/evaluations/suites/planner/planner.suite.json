@@ -1,0 +1,33 @@
+{
+  "version": "1.0",
+
+  "metadata": {
+    "id": "planner-suite",
+    "name": "Planner Agent",
+    "description": "Evaluation suite for testing planner agent's task breakdown, organization, and planning capabilities"
+  },
+
+  "settings": {
+    "runsPerEvaluation": 5,
+    "parallelRuns": false,
+    "timeoutMs": 60000,
+    "llmConfig": {
+      "temperature": 0.7,
+      "maxTokens": 4096
+    }
+  },
+
+  "evaluations": [
+    { "path": "suites/planner/delegation-trigger.eval.json" },
+    { "path": "suites/planner/task-breakdown.eval.json" },
+    { "path": "suites/planner/dependency-identification.eval.json" },
+    { "path": "suites/planner/prioritization.eval.json" },
+    { "path": "suites/planner/milestone-planning.eval.json" }
+  ],
+
+  "comparison": {
+    "statisticalTest": "welch_t_test",
+    "confidenceLevel": 0.95,
+    "minimumRunsForSignificance": 5
+  }
+}

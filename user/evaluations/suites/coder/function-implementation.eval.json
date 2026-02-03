@@ -1,0 +1,96 @@
+{
+  "version": "1.0",
+
+  "metadata": {
+    "id": "coder-function-impl-001",
+    "name": "Function Implementation",
+    "description": "Evaluates coder agent's ability to implement a function from requirements",
+    "target": "sub-agent:coder",
+    "tags": ["coder", "implementation", "function"]
+  },
+
+  "target": {
+    "source": "file",
+    "prompt": "coder.md"
+  },
+
+  "testCase": {
+    "userPrompt": "Write a JavaScript function that takes an array of numbers and returns an object with the min, max, sum, and average values.",
+    "history": []
+  },
+
+  "toolExpectations": {
+    "expectedTools": [],
+    "forbiddenTools": ["native__web_search"]
+  },
+
+  "mockedOutputs": {},
+
+  "responseExpectations": {
+    "requiredElements": [
+      {
+        "id": "function-defined",
+        "description": "Defines a JavaScript function",
+        "matchType": "regex",
+        "value": "(function\\s+\\w+|const\\s+\\w+\\s*=|=>)",
+        "weight": 1.0
+      },
+      {
+        "id": "returns-object",
+        "description": "Returns an object with required properties",
+        "matchType": "semantic",
+        "value": "returns an object containing min, max, sum, and average",
+        "weight": 1.0
+      },
+      {
+        "id": "correct-calculations",
+        "description": "Implements correct calculations",
+        "matchType": "semantic",
+        "value": "correctly calculates minimum, maximum, sum, and average of array",
+        "weight": 1.0
+      }
+    ],
+    "optionalElements": [
+      {
+        "id": "edge-cases",
+        "description": "Handles edge cases",
+        "matchType": "semantic",
+        "value": "handles empty array or invalid input",
+        "weight": 0.5
+      },
+      {
+        "id": "clean-code",
+        "description": "Uses clean, readable code",
+        "matchType": "semantic",
+        "value": "well-formatted with descriptive variable names",
+        "weight": 0.3
+      }
+    ],
+    "constraints": {
+      "minLength": 100,
+      "maxLength": 2000
+    }
+  },
+
+  "delegationExpectations": {
+    "shouldDelegate": false
+  },
+
+  "scoring": {
+    "toolSelection": {
+      "weight": 0.1,
+      "criteria": {
+        "correct_tools_called": 0.5,
+        "no_forbidden_tools": 0.5
+      }
+    },
+    "responseQuality": {
+      "weight": 0.9,
+      "criteria": {
+        "required_elements": 0.7,
+        "optional_elements": 0.2,
+        "constraints_met": 0.1
+      }
+    }
+  }
+}

@@ -1,0 +1,96 @@
+{
+  "version": "1.0",
+
+  "metadata": {
+    "id": "writer-email-001",
+    "name": "Email Composition",
+    "description": "Evaluates writer agent's ability to compose professional emails",
+    "target": "sub-agent:writer",
+    "tags": ["writer", "email", "professional"]
+  },
+
+  "target": {
+    "source": "file",
+    "prompt": "writer.md"
+  },
+
+  "testCase": {
+    "userPrompt": "Write an email to my team announcing that our project deadline has been moved up by two weeks. Keep it professional but not too formal.",
+    "history": []
+  },
+
+  "toolExpectations": {
+    "expectedTools": [],
+    "forbiddenTools": ["native__web_search"]
+  },
+
+  "mockedOutputs": {},
+
+  "responseExpectations": {
+    "requiredElements": [
+      {
+        "id": "email-format",
+        "description": "Uses proper email format",
+        "matchType": "semantic",
+        "value": "includes subject line or greeting and clear structure",
+        "weight": 1.0
+      },
+      {
+        "id": "deadline-announcement",
+        "description": "Clearly communicates the deadline change",
+        "matchType": "semantic",
+        "value": "clearly states the deadline has moved up by two weeks",
+        "weight": 1.0
+      },
+      {
+        "id": "appropriate-tone",
+        "description": "Professional but not overly formal",
+        "matchType": "semantic",
+        "value": "maintains professional tone while being approachable",
+        "weight": 0.8
+      }
+    ],
+    "optionalElements": [
+      {
+        "id": "action-items",
+        "description": "Includes next steps or action items",
+        "matchType": "semantic",
+        "value": "suggests how to proceed or offers to discuss",
+        "weight": 0.5
+      },
+      {
+        "id": "acknowledgment",
+        "description": "Acknowledges the challenge",
+        "matchType": "semantic",
+        "value": "recognizes this may be challenging or thanks team in advance",
+        "weight": 0.4
+      }
+    ],
+    "constraints": {
+      "minLength": 80,
+      "maxLength": 1000
+    }
+  },
+
+  "delegationExpectations": {
+    "shouldDelegate": false
+  },
+
+  "scoring": {
+    "toolSelection": {
+      "weight": 0.1,
+      "criteria": {
+        "correct_tools_called": 0.5,
+        "no_forbidden_tools": 0.5
+      }
+    },
+    "responseQuality": {
+      "weight": 0.9,
+      "criteria": {
+        "required_elements": 0.6,
+        "optional_elements": 0.3,
+        "constraints_met": 0.1
+      }
+    }
+  }
+}

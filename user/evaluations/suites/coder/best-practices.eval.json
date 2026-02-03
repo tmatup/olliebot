@@ -1,0 +1,102 @@
+{
+  "version": "1.0",
+
+  "metadata": {
+    "id": "coder-best-practices-001",
+    "name": "Best Practices Suggestions",
+    "description": "Evaluates coder agent's ability to suggest code improvements and best practices",
+    "target": "sub-agent:coder",
+    "tags": ["coder", "best-practices", "review"]
+  },
+
+  "target": {
+    "source": "file",
+    "prompt": "coder.md"
+  },
+
+  "testCase": {
+    "userPrompt": "How can I improve this code?\n\n```javascript\nfunction getData(url) {\n  var result = null;\n  fetch(url)\n    .then(function(response) {\n      return response.json();\n    })\n    .then(function(data) {\n      result = data;\n    });\n  return result;\n}\n```",
+    "history": []
+  },
+
+  "toolExpectations": {
+    "expectedTools": [],
+    "forbiddenTools": []
+  },
+
+  "mockedOutputs": {},
+
+  "responseExpectations": {
+    "requiredElements": [
+      {
+        "id": "async-issue",
+        "description": "Identifies the async issue",
+        "matchType": "semantic",
+        "value": "explains that result will always be null due to async nature",
+        "weight": 1.0
+      },
+      {
+        "id": "async-await-suggestion",
+        "description": "Suggests async/await pattern",
+        "matchType": "semantic",
+        "value": "recommends using async/await or returning the promise",
+        "weight": 1.0
+      }
+    ],
+    "optionalElements": [
+      {
+        "id": "const-let",
+        "description": "Suggests const/let over var",
+        "matchType": "semantic",
+        "value": "recommends using const or let instead of var",
+        "weight": 0.4
+      },
+      {
+        "id": "arrow-functions",
+        "description": "Suggests arrow functions",
+        "matchType": "semantic",
+        "value": "recommends using arrow function syntax",
+        "weight": 0.3
+      },
+      {
+        "id": "error-handling",
+        "description": "Suggests error handling",
+        "matchType": "semantic",
+        "value": "recommends adding try/catch or .catch() for error handling",
+        "weight": 0.5
+      },
+      {
+        "id": "improved-code",
+        "description": "Provides improved version",
+        "matchType": "semantic",
+        "value": "shows corrected code with improvements applied",
+        "weight": 0.5
+      }
+    ],
+    "constraints": {
+      "minLength": 100,
+      "maxLength": 2000
+    }
+  },
+
+  "delegationExpectations": {
+    "shouldDelegate": false
+  },
+
+  "scoring": {
+    "toolSelection": {
+      "weight": 0.1,
+      "criteria": {
+        "correct_tools_called": 1.0
+      }
+    },
+    "responseQuality": {
+      "weight": 0.9,
+      "criteria": {
+        "required_elements": 0.6,
+        "optional_elements": 0.3,
+        "constraints_met": 0.1
+      }
+    }
+  }
+}

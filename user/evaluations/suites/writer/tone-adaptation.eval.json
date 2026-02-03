@@ -1,0 +1,88 @@
+{
+  "version": "1.0",
+
+  "metadata": {
+    "id": "writer-tone-001",
+    "name": "Tone Adaptation",
+    "description": "Evaluates writer agent's ability to adapt writing style and tone",
+    "target": "sub-agent:writer",
+    "tags": ["writer", "tone", "style"]
+  },
+
+  "target": {
+    "source": "file",
+    "prompt": "writer.md"
+  },
+
+  "testCase": {
+    "userPrompt": "Rewrite this formal announcement in a casual, friendly tone for our company's social media:\n\n\"We are pleased to announce that our organization will be hosting its annual conference on September 15th. Attendance is highly encouraged for all stakeholders interested in industry developments.\"",
+    "history": []
+  },
+
+  "toolExpectations": {
+    "expectedTools": [],
+    "forbiddenTools": []
+  },
+
+  "mockedOutputs": {},
+
+  "responseExpectations": {
+    "requiredElements": [
+      {
+        "id": "casual-tone",
+        "description": "Uses casual, friendly language",
+        "matchType": "semantic",
+        "value": "transforms formal language to conversational style",
+        "weight": 1.0
+      },
+      {
+        "id": "same-info",
+        "description": "Preserves key information",
+        "matchType": "semantic",
+        "value": "includes conference and September 15th date",
+        "weight": 1.0
+      },
+      {
+        "id": "social-appropriate",
+        "description": "Appropriate for social media",
+        "matchType": "semantic",
+        "value": "feels natural for social media post, possibly shorter",
+        "weight": 0.8
+      }
+    ],
+    "optionalElements": [
+      {
+        "id": "engagement",
+        "description": "Encourages engagement",
+        "matchType": "semantic",
+        "value": "uses questions, emojis, or calls to action typical of social media",
+        "weight": 0.5
+      }
+    ],
+    "constraints": {
+      "minLength": 30,
+      "maxLength": 800
+    }
+  },
+
+  "delegationExpectations": {
+    "shouldDelegate": false
+  },
+
+  "scoring": {
+    "toolSelection": {
+      "weight": 0.1,
+      "criteria": {
+        "correct_tools_called": 1.0
+      }
+    },
+    "responseQuality": {
+      "weight": 0.9,
+      "criteria": {
+        "required_elements": 0.7,
+        "optional_elements": 0.2,
+        "constraints_met": 0.1
+      }
+    }
+  }
+}

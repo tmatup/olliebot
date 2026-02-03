@@ -1,0 +1,97 @@
+{
+  "version": "1.0",
+
+  "metadata": {
+    "id": "supervisor-context-001",
+    "name": "Context Awareness",
+    "description": "Evaluates supervisor's ability to maintain context from conversation history",
+    "target": "supervisor",
+    "tags": ["context", "history", "follow-up"]
+  },
+
+  "target": {
+    "source": "file",
+    "prompt": "supervisor.md"
+  },
+
+  "testCase": {
+    "userPrompt": "What about the second one?",
+    "history": [
+      {
+        "role": "user",
+        "content": "What are three popular programming languages for web development?"
+      },
+      {
+        "role": "assistant",
+        "content": "Three popular programming languages for web development are:\n\n1. **JavaScript** - The most widely used language for web development, essential for frontend and increasingly used for backend with Node.js.\n\n2. **Python** - Popular for backend development with frameworks like Django and Flask, known for its readability.\n\n3. **TypeScript** - A superset of JavaScript that adds static typing, increasingly popular for large-scale applications."
+      }
+    ]
+  },
+
+  "toolExpectations": {
+    "expectedTools": [],
+    "forbiddenTools": ["native__spawn_agent"]
+  },
+
+  "mockedOutputs": {},
+
+  "responseExpectations": {
+    "requiredElements": [
+      {
+        "id": "identifies-python",
+        "description": "Correctly identifies the second item from context",
+        "matchType": "semantic",
+        "value": "discusses Python as the second programming language",
+        "weight": 1.0
+      },
+      {
+        "id": "provides-details",
+        "description": "Provides additional relevant details",
+        "matchType": "semantic",
+        "value": "expands on Python's features, use cases, or characteristics",
+        "weight": 0.8
+      }
+    ],
+    "optionalElements": [
+      {
+        "id": "frameworks",
+        "description": "Mentions Python web frameworks",
+        "matchType": "semantic",
+        "value": "mentions Django, Flask, FastAPI, or other Python web frameworks",
+        "weight": 0.5
+      }
+    ],
+    "constraints": {
+      "maxLength": 1500,
+      "minLength": 50
+    }
+  },
+
+  "delegationExpectations": {
+    "shouldDelegate": false
+  },
+
+  "scoring": {
+    "toolSelection": {
+      "weight": 0.1,
+      "criteria": {
+        "correct_tools_called": 0.5,
+        "no_forbidden_tools": 0.5
+      }
+    },
+    "responseQuality": {
+      "weight": 0.7,
+      "criteria": {
+        "required_elements": 0.7,
+        "optional_elements": 0.2,
+        "constraints_met": 0.1
+      }
+    },
+    "delegationAccuracy": {
+      "weight": 0.2,
+      "criteria": {
+        "correct_delegation_decision": 1.0
+      }
+    }
+  }
+}

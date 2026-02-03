@@ -1,0 +1,123 @@
+{
+  "version": "1.0",
+
+  "metadata": {
+    "id": "researcher-comparative-001",
+    "name": "Comparative Analysis",
+    "description": "Evaluates researcher agent's ability to compare and contrast multiple options",
+    "target": "sub-agent:researcher",
+    "tags": ["researcher", "comparison", "analysis"]
+  },
+
+  "target": {
+    "source": "file",
+    "prompt": "researcher.md"
+  },
+
+  "testCase": {
+    "userPrompt": "Compare electric vehicles vs hybrid vehicles - what are the pros and cons of each?",
+    "history": []
+  },
+
+  "toolExpectations": {
+    "expectedTools": [
+      {
+        "name": "native__web_search",
+        "required": true,
+        "parameters": {
+          "query": {
+            "matchType": "semantic",
+            "expected": "electric vehicles hybrid comparison"
+          }
+        }
+      }
+    ],
+    "forbiddenTools": []
+  },
+
+  "mockedOutputs": {
+    "native__web_search": {
+      "success": true,
+      "output": {
+        "query": "electric vehicles vs hybrid vehicles pros cons comparison",
+        "provider": "serper",
+        "results": [
+          {
+            "title": "EV vs Hybrid: Complete Comparison Guide",
+            "link": "https://example.com/ev-hybrid-comparison",
+            "snippet": "EVs offer zero emissions and lower running costs but limited range (200-300 miles) and longer charging times. Hybrids provide better range with no charging infrastructure needs but still use gasoline.",
+            "position": 1
+          },
+          {
+            "title": "Total Cost of Ownership: EV vs Hybrid",
+            "link": "https://example.com/ev-hybrid-cost",
+            "snippet": "EVs have higher upfront costs but save $1,000-2,000 annually on fuel. Hybrids are cheaper initially with 40-50 MPG efficiency. Battery replacement costs are a factor for both.",
+            "position": 2
+          }
+        ],
+        "totalResults": 18
+      }
+    }
+  },
+
+  "responseExpectations": {
+    "requiredElements": [
+      {
+        "id": "both-options",
+        "description": "Discusses both EVs and hybrids",
+        "matchType": "semantic",
+        "value": "provides information about both electric vehicles and hybrid vehicles",
+        "weight": 1.0
+      },
+      {
+        "id": "pros-cons",
+        "description": "Lists pros and cons for each",
+        "matchType": "semantic",
+        "value": "identifies advantages and disadvantages of each option",
+        "weight": 1.0
+      },
+      {
+        "id": "key-differences",
+        "description": "Highlights key differences",
+        "matchType": "semantic",
+        "value": "mentions range, charging, emissions, or cost differences",
+        "weight": 0.8
+      }
+    ],
+    "optionalElements": [
+      {
+        "id": "recommendation",
+        "description": "Provides situational recommendation",
+        "matchType": "semantic",
+        "value": "suggests which might be better for different use cases",
+        "weight": 0.5
+      }
+    ],
+    "constraints": {
+      "minLength": 250,
+      "maxLength": 2500
+    }
+  },
+
+  "delegationExpectations": {
+    "shouldDelegate": false
+  },
+
+  "scoring": {
+    "toolSelection": {
+      "weight": 0.25,
+      "criteria": {
+        "correct_tools_called": 0.7,
+        "correct_parameters": 0.3
+      }
+    },
+    "responseQuality": {
+      "weight": 0.75,
+      "criteria": {
+        "required_elements": 0.6,
+        "optional_elements": 0.25,
+        "constraints_met": 0.15
+      }
+    }
+  }
+}

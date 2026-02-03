@@ -1,0 +1,88 @@
+{
+  "version": "1.0",
+
+  "metadata": {
+    "id": "coder-debugging-001",
+    "name": "Code Debugging",
+    "description": "Evaluates coder agent's ability to identify and fix bugs in code",
+    "target": "sub-agent:coder",
+    "tags": ["coder", "debugging", "bug-fix"]
+  },
+
+  "target": {
+    "source": "file",
+    "prompt": "coder.md"
+  },
+
+  "testCase": {
+    "userPrompt": "This function is supposed to reverse a string but it's not working correctly. Can you fix it?\n\n```javascript\nfunction reverseString(str) {\n  let reversed = '';\n  for (let i = str.length; i >= 0; i--) {\n    reversed += str[i];\n  }\n  return reversed;\n}\n```",
+    "history": []
+  },
+
+  "toolExpectations": {
+    "expectedTools": [],
+    "forbiddenTools": []
+  },
+
+  "mockedOutputs": {},
+
+  "responseExpectations": {
+    "requiredElements": [
+      {
+        "id": "identifies-bug",
+        "description": "Identifies the off-by-one error",
+        "matchType": "semantic",
+        "value": "explains the bug is starting at str.length instead of str.length - 1",
+        "weight": 1.0
+      },
+      {
+        "id": "provides-fix",
+        "description": "Provides corrected code",
+        "matchType": "regex",
+        "value": "str\\.length\\s*-\\s*1",
+        "weight": 1.0
+      }
+    ],
+    "optionalElements": [
+      {
+        "id": "explains-why",
+        "description": "Explains why the bug occurs",
+        "matchType": "semantic",
+        "value": "explains that string indices are 0-based so last char is at length-1",
+        "weight": 0.5
+      },
+      {
+        "id": "alternative-solution",
+        "description": "Offers alternative approaches",
+        "matchType": "semantic",
+        "value": "mentions built-in methods like split, reverse, join",
+        "weight": 0.3
+      }
+    ],
+    "constraints": {
+      "minLength": 50,
+      "maxLength": 1500
+    }
+  },
+
+  "delegationExpectations": {
+    "shouldDelegate": false
+  },
+
+  "scoring": {
+    "toolSelection": {
+      "weight": 0.1,
+      "criteria": {
+        "correct_tools_called": 1.0
+      }
+    },
+    "responseQuality": {
+      "weight": 0.9,
+      "criteria": {
+        "required_elements": 0.7,
+        "optional_elements": 0.2,
+        "constraints_met": 0.1
+      }
+    }
+  }
+}

@@ -1,0 +1,81 @@
+{
+  "version": "1.0",
+
+  "metadata": {
+    "id": "supervisor-greeting-001",
+    "name": "Greeting Response",
+    "description": "Evaluates supervisor's ability to respond appropriately to casual greetings",
+    "target": "supervisor",
+    "tags": ["greeting", "conversational", "no-delegation"]
+  },
+
+  "target": {
+    "source": "file",
+    "prompt": "supervisor.md"
+  },
+
+  "testCase": {
+    "userPrompt": "Hello! How are you today?",
+    "history": []
+  },
+
+  "toolExpectations": {
+    "expectedTools": [],
+    "forbiddenTools": ["native__web_search", "native__spawn_agent"]
+  },
+
+  "mockedOutputs": {},
+
+  "responseExpectations": {
+    "requiredElements": [
+      {
+        "id": "acknowledges-greeting",
+        "description": "Acknowledges the greeting appropriately",
+        "matchType": "semantic",
+        "value": "responds with a friendly greeting or acknowledgment",
+        "weight": 1.0
+      }
+    ],
+    "optionalElements": [
+      {
+        "id": "offers-help",
+        "description": "Offers to help with something",
+        "matchType": "semantic",
+        "value": "asks how it can help or what the user needs",
+        "weight": 0.5
+      }
+    ],
+    "constraints": {
+      "maxLength": 500,
+      "minLength": 5
+    }
+  },
+
+  "delegationExpectations": {
+    "shouldDelegate": false
+  },
+
+  "scoring": {
+    "toolSelection": {
+      "weight": 0.2,
+      "criteria": {
+        "correct_tools_called": 0.3,
+        "no_forbidden_tools": 0.7
+      }
+    },
+    "responseQuality": {
+      "weight": 0.6,
+      "criteria": {
+        "required_elements": 0.7,
+        "optional_elements": 0.2,
+        "constraints_met": 0.1
+      }
+    },
+    "delegationAccuracy": {
+      "weight": 0.2,
+      "criteria": {
+        "correct_delegation_decision": 1.0
+      }
+    }
+  }
+}

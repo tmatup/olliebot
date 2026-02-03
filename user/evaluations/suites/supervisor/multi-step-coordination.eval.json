@@ -1,0 +1,95 @@
+{
+  "version": "1.0",
+
+  "metadata": {
+    "id": "supervisor-multi-step-001",
+    "name": "Multi-Step Task Coordination",
+    "description": "Evaluates supervisor's ability to break down and coordinate complex multi-step tasks",
+    "target": "supervisor",
+    "tags": ["coordination", "multi-step", "planning"]
+  },
+
+  "target": {
+    "source": "file",
+    "prompt": "supervisor.md"
+  },
+
+  "testCase": {
+    "userPrompt": "I need to prepare for a job interview at a tech company next week. What should I do?",
+    "history": []
+  },
+
+  "toolExpectations": {
+    "expectedTools": [],
+    "forbiddenTools": []
+  },
+
+  "mockedOutputs": {},
+
+  "responseExpectations": {
+    "requiredElements": [
+      {
+        "id": "structured-advice",
+        "description": "Provides structured, actionable advice",
+        "matchType": "semantic",
+        "value": "breaks down preparation into clear steps or categories",
+        "weight": 1.0
+      },
+      {
+        "id": "multiple-aspects",
+        "description": "Covers multiple aspects of interview prep",
+        "matchType": "semantic",
+        "value": "mentions research, practice, preparation of questions, or logistics",
+        "weight": 1.0
+      }
+    ],
+    "optionalElements": [
+      {
+        "id": "tech-specific",
+        "description": "Includes tech-specific advice",
+        "matchType": "semantic",
+        "value": "mentions technical interviews, coding challenges, or system design",
+        "weight": 0.5
+      },
+      {
+        "id": "timeline",
+        "description": "Suggests a timeline or prioritization",
+        "matchType": "semantic",
+        "value": "suggests when to do what or priority order",
+        "weight": 0.3
+      }
+    ],
+    "constraints": {
+      "maxLength": 3000,
+      "minLength": 200
+    }
+  },
+
+  "delegationExpectations": {
+    "shouldDelegate": false
+  },
+
+  "scoring": {
+    "toolSelection": {
+      "weight": 0.1,
+      "criteria": {
+        "correct_tools_called": 0.5,
+        "no_forbidden_tools": 0.5
+      }
+    },
+    "responseQuality": {
+      "weight": 0.7,
+      "criteria": {
+        "required_elements": 0.6,
+        "optional_elements": 0.2,
+        "constraints_met": 0.2
+      }
+    },
+    "delegationAccuracy": {
+      "weight": 0.2,
+      "criteria": {
+        "correct_delegation_decision": 1.0
+      }
+    }
+  }
+}

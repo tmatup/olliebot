@@ -1,0 +1,97 @@
+{
+  "version": "1.0",
+
+  "metadata": {
+    "id": "writer-delegation-trigger-001",
+    "name": "Writer Delegation Trigger",
+    "description": "Evaluates that supervisor correctly delegates writing tasks to the writer agent",
+    "target": "supervisor",
+    "tags": ["delegation", "writer", "trigger"]
+  },
+
+  "target": {
+    "source": "file",
+    "prompt": "supervisor.md"
+  },
+
+  "testCase": {
+    "userPrompt": "Write a professional cover letter for a software engineering position at a tech startup. I have 3 years of experience with React and Node.js.",
+    "history": []
+  },
+
+  "toolExpectations": {
+    "expectedTools": [
+      {
+        "name": "native__delegate",
+        "required": true,
+        "parameters": {
+          "type": {
+            "matchType": "exact",
+            "expected": "writer"
+          }
+        }
+      }
+    ],
+    "forbiddenTools": []
+  },
+
+  "mockedOutputs": {
+    "native__delegate": {
+      "success": true,
+      "output": {
+        "delegated": true,
+        "type": "writer",
+        "mission": "Write a professional cover letter for a software engineering position at a tech startup with 3 years of React and Node.js experience"
+      }
+    }
+  },
+
+  "responseExpectations": {
+    "requiredElements": [],
+    "optionalElements": [
+      {
+        "id": "acknowledges-delegation",
+        "description": "Acknowledges delegating to writer",
+        "matchType": "semantic",
+        "value": "indicates task is being handled by a writer or writing agent",
+        "weight": 0.5
+      }
+    ],
+    "constraints": {
+      "maxLength": 3000,
+      "minLength": 0
+    }
+  },
+
+  "delegationExpectations": {
+    "shouldDelegate": true,
+    "expectedAgentType": "writer",
+    "delegationRationaleShouldMention": ["write", "letter", "content", "document"]
+  },
+
+  "scoring": {
+    "toolSelection": {
+      "weight": 0.4,
+      "criteria": {
+        "correct_tools_called": 0.7,
+        "correct_parameters": 0.3
+      }
+    },
+    "responseQuality": {
+      "weight": 0.1,
+      "criteria": {
+        "required_elements": 0.5,
+        "optional_elements": 0.4,
+        "constraints_met": 0.1
+      }
+    },
+    "delegationAccuracy": {
+      "weight": 0.5,
+      "criteria": {
+        "correct_delegation_decision": 0.5,
+        "correct_agent_type": 0.4,
+        "quality_rationale": 0.1
+      }
+    }
+  }
+}

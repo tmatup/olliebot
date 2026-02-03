@@ -1,0 +1,33 @@
+{
+  "version": "1.0",
+
+  "metadata": {
+    "id": "supervisor-suite",
+    "name": "Supervisor Agent",
+    "description": "Evaluation suite for testing supervisor agent's routing, delegation, and direct response capabilities"
+  },
+
+  "settings": {
+    "runsPerEvaluation": 5,
+    "parallelRuns": false,
+    "timeoutMs": 60000,
+    "llmConfig": {
+      "temperature": 0.7,
+      "maxTokens": 4096
+    }
+  },
+
+  "evaluations": [
+    { "path": "suites/supervisor/direct-simple-answer.eval.json" },
+    { "path": "suites/supervisor/greeting-response.eval.json" },
+    { "path": "suites/supervisor/multi-step-coordination.eval.json" },
+    { "path": "suites/supervisor/context-awareness.eval.json" },
+    { "path": "suites/supervisor/tool-selection.eval.json" }
+  ],
+
+  "comparison": {
+    "statisticalTest": "welch_t_test",
+    "confidenceLevel": 0.95,
+    "minimumRunsForSignificance": 5
+  }
+}

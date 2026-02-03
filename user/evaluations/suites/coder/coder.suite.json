@@ -1,0 +1,33 @@
+{
+  "version": "1.0",
+
+  "metadata": {
+    "id": "coder-suite",
+    "name": "Coder Agent",
+    "description": "Evaluation suite for testing coder agent's code writing, debugging, and explanation capabilities"
+  },
+
+  "settings": {
+    "runsPerEvaluation": 5,
+    "parallelRuns": false,
+    "timeoutMs": 60000,
+    "llmConfig": {
+      "temperature": 0.7,
+      "maxTokens": 4096
+    }
+  },
+
+  "evaluations": [
+    { "path": "suites/coder/delegation-trigger.eval.json" },
+    { "path": "suites/coder/function-implementation.eval.json" },
+    { "path": "suites/coder/code-debugging.eval.json" },
+    { "path": "suites/coder/code-explanation.eval.json" },
+    { "path": "suites/coder/best-practices.eval.json" }
+  ],
+
+  "comparison": {
+    "statisticalTest": "welch_t_test",
+    "confidenceLevel": 0.95,
+    "minimumRunsForSignificance": 5
+  }
+}

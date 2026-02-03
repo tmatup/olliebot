@@ -1,0 +1,129 @@
+{
+  "version": "1.0",
+
+  "metadata": {
+    "id": "researcher-source-citation-001",
+    "name": "Source Citation",
+    "description": "Evaluates researcher agent's ability to cite sources appropriately",
+    "target": "sub-agent:researcher",
+    "tags": ["researcher", "citations", "sources"]
+  },
+
+  "target": {
+    "source": "file",
+    "prompt": "researcher.md"
+  },
+
+  "testCase": {
+    "userPrompt": "What are the health benefits of regular exercise? Please cite your sources.",
+    "history": []
+  },
+
+  "toolExpectations": {
+    "expectedTools": [
+      {
+        "name": "native__web_search",
+        "required": true,
+        "parameters": {
+          "query": {
+            "matchType": "contains",
+            "expected": "exercise"
+          }
+        }
+      }
+    ],
+    "forbiddenTools": []
+  },
+
+  "mockedOutputs": {
+    "native__web_search": {
+      "success": true,
+      "output": {
+        "query": "health benefits of regular exercise scientific studies",
+        "provider": "serper",
+        "results": [
+          {
+            "title": "Physical Activity and Health - CDC",
+            "link": "https://www.cdc.gov/physical-activity/benefits",
+            "snippet": "Regular physical activity reduces risk of cardiovascular disease by 35%, type 2 diabetes by 50%, and certain cancers by 20%. Also improves mental health and cognitive function.",
+            "position": 1
+          },
+          {
+            "title": "Exercise Benefits - Mayo Clinic",
+            "link": "https://www.mayoclinic.org/exercise-benefits",
+            "snippet": "Exercise improves mood by releasing endorphins, helps control weight, boosts energy levels, and promotes better sleep. Recommended: 150 minutes of moderate activity weekly.",
+            "position": 2
+          },
+          {
+            "title": "WHO Guidelines on Physical Activity",
+            "link": "https://www.who.int/physical-activity-guidelines",
+            "snippet": "WHO recommends adults do at least 150-300 minutes of moderate aerobic activity weekly. Regular exercise can add 3-7 years to life expectancy.",
+            "position": 3
+          }
+        ],
+        "totalResults": 20
+      }
+    }
+  },
+
+  "responseExpectations": {
+    "requiredElements": [
+      {
+        "id": "health-benefits",
+        "description": "Lists multiple health benefits",
+        "matchType": "semantic",
+        "value": "mentions cardiovascular health, mental health, weight management, or disease prevention",
+        "weight": 1.0
+      },
+      {
+        "id": "sources-cited",
+        "description": "Cites sources for information",
+        "matchType": "semantic",
+        "value": "references CDC, WHO, Mayo Clinic, or other credible sources",
+        "weight": 1.0
+      }
+    ],
+    "optionalElements": [
+      {
+        "id": "specific-data",
+        "description": "Includes specific statistics or recommendations",
+        "matchType": "semantic",
+        "value": "mentions specific percentages, time recommendations, or study findings",
+        "weight": 0.5
+      },
+      {
+        "id": "formatted-citations",
+        "description": "Well-formatted citations or links",
+        "matchType": "semantic",
+        "value": "presents sources in a clear, accessible format",
+        "weight": 0.3
+      }
+    ],
+    "constraints": {
+      "minLength": 200,
+      "maxLength": 2000
+    }
+  },
+
+  "delegationExpectations": {
+    "shouldDelegate": false
+  },
+
+  "scoring": {
+    "toolSelection": {
+      "weight": 0.25,
+      "criteria": {
+        "correct_tools_called": 0.7,
+        "correct_parameters": 0.3
+      }
+    },
+    "responseQuality": {
+      "weight": 0.75,
+      "criteria": {
+        "required_elements": 0.6,
+        "optional_elements": 0.3,
+        "constraints_met": 0.1
+      }
+    }
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "version": "1.0",
+
+  "metadata": {
+    "id": "researcher-suite",
+    "name": "Researcher Agent",
+    "description": "Evaluation suite for testing researcher agent's information gathering, analysis, and synthesis capabilities"
+  },
+
+  "settings": {
+    "runsPerEvaluation": 5,
+    "parallelRuns": false,
+    "timeoutMs": 60000,
+    "llmConfig": {
+      "temperature": 0.7,
+      "maxTokens": 4096
+    }
+  },
+
+  "evaluations": [
+    { "path": "suites/researcher/delegation-trigger.eval.json" },
+    { "path": "suites/researcher/web-search-synthesis.eval.json" },
+    { "path": "suites/researcher/fact-verification.eval.json" },
+    { "path": "suites/researcher/comparative-analysis.eval.json" },
+    { "path": "suites/researcher/source-citation.eval.json" }
+  ],
+
+  "comparison": {
+    "statisticalTest": "welch_t_test",
+    "confidenceLevel": 0.95,
+    "minimumRunsForSignificance": 5
+  }
+}

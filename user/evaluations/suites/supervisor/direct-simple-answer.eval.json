@@ -1,0 +1,81 @@
+{
+  "version": "1.0",
+
+  "metadata": {
+    "id": "supervisor-direct-simple-001",
+    "name": "Direct Simple Answer",
+    "description": "Evaluates supervisor's ability to directly answer simple factual questions without delegation",
+    "target": "supervisor",
+    "tags": ["direct", "simple", "no-delegation"]
+  },
+
+  "target": {
+    "source": "file",
+    "prompt": "supervisor.md"
+  },
+
+  "testCase": {
+    "userPrompt": "What is the capital of France?",
+    "history": []
+  },
+
+  "toolExpectations": {
+    "expectedTools": [],
+    "forbiddenTools": ["native__web_search", "native__spawn_agent"]
+  },
+
+  "mockedOutputs": {},
+
+  "responseExpectations": {
+    "requiredElements": [
+      {
+        "id": "correct-answer",
+        "description": "Provides the correct answer",
+        "matchType": "contains",
+        "value": "Paris",
+        "weight": 1.0
+      }
+    ],
+    "optionalElements": [
+      {
+        "id": "brief-response",
+        "description": "Response is appropriately concise",
+        "matchType": "semantic",
+        "value": "short, direct answer without unnecessary elaboration",
+        "weight": 0.5
+      }
+    ],
+    "constraints": {
+      "maxLength": 300,
+      "minLength": 1
+    }
+  },
+
+  "delegationExpectations": {
+    "shouldDelegate": false
+  },
+
+  "scoring": {
+    "toolSelection": {
+      "weight": 0.2,
+      "criteria": {
+        "correct_tools_called": 0.3,
+        "no_forbidden_tools": 0.7
+      }
+    },
+    "responseQuality": {
+      "weight": 0.5,
+      "criteria": {
+        "required_elements": 0.8,
+        "optional_elements": 0.1,
+        "constraints_met": 0.1
+      }
+    },
+    "delegationAccuracy": {
+      "weight": 0.3,
+      "criteria": {
+        "correct_delegation_decision": 1.0
+      }
+    }
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "version": "1.0",
+
+  "metadata": {
+    "id": "writer-suite",
+    "name": "Writer Agent",
+    "description": "Evaluation suite for testing writer agent's content creation, editing, and writing capabilities"
+  },
+
+  "settings": {
+    "runsPerEvaluation": 5,
+    "parallelRuns": false,
+    "timeoutMs": 60000,
+    "llmConfig": {
+      "temperature": 0.7,
+      "maxTokens": 4096
+    }
+  },
+
+  "evaluations": [
+    { "path": "suites/writer/delegation-trigger.eval.json" },
+    { "path": "suites/writer/email-composition.eval.json" },
+    { "path": "suites/writer/content-editing.eval.json" },
+    { "path": "suites/writer/tone-adaptation.eval.json" },
+    { "path": "suites/writer/creative-writing.eval.json" }
+  ],
+
+  "comparison": {
+    "statisticalTest": "welch_t_test",
+    "confidenceLevel": 0.95,
+    "minimumRunsForSignificance": 5
+  }
+}

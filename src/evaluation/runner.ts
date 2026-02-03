@@ -79,11 +79,11 @@ export class EvaluationRunner {
       mockedToolRunner
     );
 
-    // 5. Parse delegation if supervisor target
-    const delegationDecision = this.parseDelegation(response, definition);
-
-    // 6. Get recorded tool calls
+    // 5. Get recorded tool calls
     const recordedCalls = mockedToolRunner.getRecordedCalls();
+
+    // 6. Parse delegation if supervisor target (uses tool calls)
+    const delegationDecision = this.parseDelegation(response, definition, recordedCalls);
 
     // 7. Score the results
     const scores = await this.scorer.score(
@@ -279,39 +279,30 @@ export class EvaluationRunner {
   }
 
   /**
-   * Parse delegation decision from response
+   * Parse delegation decision from tool calls
    */
   private parseDelegation(
-    response: string,
-    definition: EvaluationDefinition
+    _response: string,
+    definition: EvaluationDefinition,
+    toolCalls?: Array<{ toolName: string; parameters: Record<string, unknown> }>
   ): DelegationDecision | undefined {
     // Only parse delegation for supervisor targets
     if (definition.metadata.target !== 'supervisor') {
       return undefined;
     }
 
-    // Look for delegation block
-    const delegationMatch = response.match(/```delegate\s*([\s\S]*?)```/);
+    // Look for native__delegate tool call
+    const delegateCall = toolCalls?.find(call => call.toolName === 'native__delegate');
 
-    if (!delegationMatch) {
+    if (!delegateCall) {
       return { delegated: false };
     }
 
-    try {
-      const delegationJson = JSON.parse(delegationMatch[1].trim());
-      return {
-        delegated: true,
-        agentType: delegationJson.type,
-        rationale: delegationJson.rationale,
-      };
-    } catch {
-      // Failed to parse delegation JSON
-      return {
-        delegated: true,
-        agentType: 'unknown',
-        rationale: delegationMatch[1].trim(),
-      };
-    }
+    return {
+      delegated: true,
+      agentType: delegateCall.parameters.type as string,
+      rationale: delegateCall.parameters.rationale as string | undefined,
+    };
   }
 
   /**
