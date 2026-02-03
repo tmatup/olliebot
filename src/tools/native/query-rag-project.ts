@@ -87,6 +87,7 @@ export class QueryRAGProjectTool implements NativeTool {
         text: result.text,
         score: result.score,
         chunkIndex: result.chunkIndex,
+        ...(result.metadata && Object.keys(result.metadata).length > 0 && { metadata: result.metadata }),
       }));
 
       return {

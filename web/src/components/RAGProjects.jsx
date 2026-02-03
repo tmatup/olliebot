@@ -83,9 +83,10 @@ const RAGProjects = memo(function RAGProjects({
                       className="rag-project-index-btn"
                       onClick={(e) => {
                         e.stopPropagation();
-                        onIndex(project.id);
+                        const force = e.ctrlKey || e.metaKey;
+                        onIndex(project.id, force);
                       }}
-                      title="Index documents"
+                      title="Index documents (Ctrl+click to force full re-index)"
                     >
                       ⟳
                     </button>

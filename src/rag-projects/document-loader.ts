@@ -144,21 +144,68 @@ async function loadTextFile(filePath: string): Promise<string> {
 }
 
 /**
+ * Page content with page number.
+ */
+interface PageContent {
+  pageNumber: number;
+  text: string;
+}
+
+/**
  * Load and parse a PDF file using unpdf.
+ * Returns merged text (for backward compatibility).
  */
 async function loadPdfFile(filePath: string): Promise<string> {
+  const pages = await loadPdfFileWithPages(filePath);
+  return pages.map((p) => p.text).join('\n\n');
+}
+
+/**
+ * Load and parse a PDF file, returning text per page.
+ */
+async function loadPdfFileWithPages(filePath: string): Promise<PageContent[]> {
+  // Intercept console.warn to prefix pdf.js warnings
+  const originalWarn = console.warn;
+  console.warn = (...args: unknown[]) => {
+    const msg = args[0];
+    if (typeof msg === 'string' && (msg.includes('TT:') || msg.includes('Warning:'))) {
+      // Prefix pdf.js warnings with RAG context
+      originalWarn.call(console, '[RAG/PDF]', ...args);
+    } else {
+      originalWarn.call(console, ...args);
+    }
+  };
+
   try {
     // Dynamic import for unpdf
-    const { extractText, getDocumentProxy } = await import('unpdf');
+    const { getDocumentProxy } = await import('unpdf');
 
     const buffer = await readFile(filePath);
     const pdf = await getDocumentProxy(new Uint8Array(buffer));
-    const { text } = await extractText(pdf, { mergePages: true });
+    const totalPages = pdf.numPages;
 
-    return text;
+    // Extract text from each page using pdf.js API
+    const pages: PageContent[] = [];
+    for (let i = 1; i <= totalPages; i++) {
+      const page = await pdf.getPage(i);
+      const textContent = await page.getTextContent();
+      const pageText = textContent.items
+        .map((item) => ('str' in item ? (item as { str: string }).str : ''))
+        .join(' ')
+        .trim();
+
+      if (pageText) {
+        pages.push({ pageNumber: i, text: pageText });
+      }
+    }
+
+    return pages;
   } catch (error) {
-    console.error(`[DocumentLoader] Failed to load PDF ${filePath}:`, error);
+    console.error(`[RAG/PDF] Failed to load PDF ${filePath}:`, error);
     throw new Error(`Failed to parse PDF: ${error instanceof Error ? error.message : String(error)}`);
+  } finally {
+    // Restore original console.warn
+    console.warn = originalWarn;
   }
 }
 
@@ -215,6 +262,7 @@ export async function loadDocument(filePath: string): Promise<string> {
 
 /**
  * Load a document and split it into chunks ready for embedding.
+ * For PDFs, includes page number metadata.
  */
 export async function loadAndChunkDocument(
   filePath: string,
@@ -226,13 +274,17 @@ export async function loadAndChunkDocument(
     ...options,
   };
 
-  // Load the document
-  const text = await loadDocument(filePath);
+  const ext = extname(filePath).toLowerCase();
 
-  // Chunk the text
+  // Use page-aware chunking for PDFs
+  if (ext === '.pdf') {
+    return loadAndChunkPdf(filePath, relativePath, chunkOptions);
+  }
+
+  // Standard chunking for other formats
+  const text = await loadDocument(filePath);
   const textChunks = chunkText(text, chunkOptions);
 
-  // Convert to DocumentChunk format
   return textChunks.map((chunk, index) => ({
     text: chunk,
     documentPath: relativePath,
@@ -242,4 +294,45 @@ export async function loadAndChunkDocument(
       totalChunks: textChunks.length,
     },
   }));
+}
+
+/**
+ * Load and chunk a PDF file with page number tracking.
+ */
+async function loadAndChunkPdf(
+  filePath: string,
+  relativePath: string,
+  options: ChunkOptions
+): Promise<DocumentChunk[]> {
+  const pages = await loadPdfFileWithPages(filePath);
+  const chunks: DocumentChunk[] = [];
+  let globalChunkIndex = 0;
+
+  for (const page of pages) {
+    const pageChunks = chunkText(page.text, options);
+
+    for (const chunkContent of pageChunks) {
+      chunks.push({
+        text: chunkContent,
+        documentPath: relativePath,
+        chunkIndex: globalChunkIndex,
+        contentType: 'text' as const,
+        metadata: {
+          pageNumber: page.pageNumber,
+          totalPages: pages.length,
+        },
+      });
+      globalChunkIndex++;
+    }
+  }
+
+  // Add totalChunks to all chunks
+  for (const chunk of chunks) {
+    chunk.metadata = {
+      ...chunk.metadata,
+      totalChunks: chunks.length,
+    };
+  }
+
+  return chunks;
 }

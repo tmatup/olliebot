@@ -198,8 +198,10 @@ export class RAGProjectService extends EventEmitter {
   /**
    * Index a project's documents with incremental support.
    * Only re-indexes new or changed files; skips unchanged files.
+   * @param projectId - The project to index
+   * @param force - If true, clears all vectors and re-indexes everything
    */
-  async indexProject(projectId: string): Promise<void> {
+  async indexProject(projectId: string, force: boolean = false): Promise<void> {
     const projectPath = join(this.ragDir, projectId);
     if (!existsSync(projectPath)) {
       throw new Error(`Project not found: ${projectId}`);
@@ -224,6 +226,15 @@ export class RAGProjectService extends EventEmitter {
         this.stores.set(projectId, store);
       }
 
+      // Force re-index: clear everything and treat all files as new
+      if (force) {
+        console.log(`[RAGProjects] Force re-index: clearing all vectors for ${projectId}`);
+        await store.clear();
+        store = await createLanceStore(projectPath, this.embeddingProvider);
+        this.stores.set(projectId, store);
+        manifest.documents = {};
+      }
+
       // Categorize files: new, changed, unchanged, removed
       const currentFilePaths = new Set<string>();
       const filesToIndex: Array<{ filePath: string; relativePath: string; isNew: boolean }> = [];
@@ -237,7 +248,7 @@ export class RAGProjectService extends EventEmitter {
         const fileModified = stats.mtime.toISOString();
 
         if (!existingDoc) {
-          // New file
+          // New file (or force re-index cleared the manifest)
           filesToIndex.push({ filePath, relativePath, isNew: true });
         } else if (
           existingDoc.status !== 'indexed' ||
@@ -262,7 +273,7 @@ export class RAGProjectService extends EventEmitter {
       const totalToProcess = filesToIndex.length + removedFiles.length;
       const unchangedCount = docFiles.length - filesToIndex.length;
 
-      console.log(`[RAGProjects] Incremental index: ${filesToIndex.length} to index, ${unchangedCount} unchanged, ${removedFiles.length} removed`);
+      console.log(`[RAGProjects] ${force ? 'Force' : 'Incremental'} index: ${filesToIndex.length} to index, ${unchangedCount} unchanged, ${removedFiles.length} removed`);
 
       // Emit start event
       this.emitProgress({

@@ -61,10 +61,12 @@ export function createRAGProjectRoutes(ragService: RAGProjectService): Router {
    * POST /api/rag/projects/:id/index
    * Trigger indexing for a project.
    * Returns immediately; progress is sent via WebSocket.
+   * Query param: ?force=true to force full re-index
    */
   router.post('/projects/:id/index', async (req: Request, res: Response) => {
     try {
       const projectId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+      const force = req.query.force === 'true' || req.body.force === true;
 
       // Check if already indexing
       if (ragService.isIndexing(projectId)) {
@@ -73,14 +75,15 @@ export function createRAGProjectRoutes(ragService: RAGProjectService): Router {
       }
 
       // Start indexing (async - don't wait for completion)
-      ragService.indexProject(projectId).catch((error) => {
+      ragService.indexProject(projectId, force).catch((error) => {
         console.error(`[RAGProjects] Indexing error for ${projectId}:`, error);
       });
 
       res.json({
         success: true,
-        message: 'Indexing started',
+        message: force ? 'Force re-indexing started' : 'Indexing started',
         projectId,
+        force,
       });
     } catch (error) {
       console.error(`[RAGProjects] Failed to start indexing:`, error);

@@ -1524,10 +1524,13 @@ function App() {
     toggleAccordion('ragProjects');
   }, [toggleAccordion]);
 
-  // Handle RAG project indexing
-  const handleIndexProject = useCallback(async (projectId) => {
+  // Handle RAG project indexing (force=true for full re-index)
+  const handleIndexProject = useCallback(async (projectId, force = false) => {
     try {
-      const res = await fetch(`/api/rag/projects/${projectId}/index`, {
+      const url = force
+        ? `/api/rag/projects/${projectId}/index?force=true`
+        : `/api/rag/projects/${projectId}/index`;
+      const res = await fetch(url, {
         method: 'POST',
       });
       if (!res.ok) {
