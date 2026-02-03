@@ -112,6 +112,7 @@ export class OpenAIComputerUseProvider implements IComputerUseProvider {
     if (previousResponseId && previousCallId) {
       return {
         model: this.model,
+        max_output_tokens: this.maxTokens,
         previous_response_id: previousResponseId,
         input: [
           {
@@ -131,6 +132,7 @@ export class OpenAIComputerUseProvider implements IComputerUseProvider {
 
     return {
       model: this.model,
+      max_output_tokens: this.maxTokens,
       input: [
         {
           type: 'message',
@@ -334,6 +336,7 @@ interface OpenAIResponsesAPIRequest {
   tools: OpenAITool[];
   truncation?: 'auto' | 'disabled';
   previous_response_id?: string;
+  max_output_tokens?: number;
 }
 
 type OpenAIInputItem = OpenAIMessageInput | OpenAIComputerCallOutputInput;
