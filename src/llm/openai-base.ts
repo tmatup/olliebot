@@ -690,7 +690,25 @@ export abstract class OpenAIBaseProvider implements LLMProvider {
         continue;
       }
 
-      // Handle user messages that contain tool_result
+      // Handle user messages that contain tool_result (array format from Anthropic)
+      if (msg.role === 'user' && Array.isArray(msg.content)) {
+        const toolResultBlocks = msg.content.filter((b) => b.type === 'tool_result' && b.tool_use_id);
+        if (toolResultBlocks.length > 0) {
+          // Convert each tool_result block to an OpenAI tool message
+          for (const block of toolResultBlocks) {
+            openaiMessages.push({
+              role: 'tool',
+              tool_call_id: block.tool_use_id!,
+              content: typeof block.content === 'string'
+                ? block.content
+                : JSON.stringify(block.content),
+            });
+          }
+          continue;
+        }
+      }
+
+      // Handle user messages that contain tool_result (string JSON format - legacy)
       if (msg.role === 'user' && typeof msg.content === 'string' && msg.content.startsWith('{')) {
         try {
           const parsed = JSON.parse(msg.content);

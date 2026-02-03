@@ -150,9 +150,10 @@ export class ComputerUseBrowserStrategy extends BaseBrowserStrategy {
         continue;
       }
 
-      // Log reasoning if available
-      const reasoningInfo = cuResponse.reasoning ? `Reasoning: ${cuResponse.reasoning}` : '';
-      console.log(`[ComputerUseStrategy] Step ${stepCount}: ${cuResponse.action.type} ${reasoningInfo}`);
+      // Log action details including coordinates
+      const actionDetails = this.formatActionDetails(cuResponse.action);
+      const reasoningInfo = cuResponse.reasoning ? `\n  Reasoning: ${cuResponse.reasoning}` : '';
+      console.log(`[ComputerUseStrategy] Step ${stepCount}: ${cuResponse.action.type} ${actionDetails}${reasoningInfo}`);
 
       // Convert CU action to BrowserAction
       const browserAction = this.convertToBrowserAction(cuResponse.action);
@@ -235,5 +236,31 @@ export class ComputerUseBrowserStrategy extends BaseBrowserStrategy {
           waitTimeout: 500,
         };
     }
+  }
+
+  /**
+   * Formats action details for logging.
+   */
+  private formatActionDetails(action: { type: string; x?: number; y?: number; text?: string; key?: string; direction?: string; amount?: number }): string {
+    const parts: string[] = [];
+
+    if (action.x !== undefined && action.y !== undefined) {
+      parts.push(`at (${action.x}, ${action.y})`);
+    }
+    if (action.text) {
+      const truncated = action.text.length > 30 ? action.text.substring(0, 30) + '...' : action.text;
+      parts.push(`text="${truncated}"`);
+    }
+    if (action.key) {
+      parts.push(`key="${action.key}"`);
+    }
+    if (action.direction) {
+      parts.push(`direction=${action.direction}`);
+    }
+    if (action.amount) {
+      parts.push(`amount=${action.amount}`);
+    }
+
+    return parts.length > 0 ? `[${parts.join(', ')}]` : '';
   }
 }

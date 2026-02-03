@@ -99,11 +99,12 @@ export class BrowserSessionManager {
 
     this.browser = await chromium.launch({
       headless,
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-      ],
+      // Uncomment these args if running in Docker or restricted environments:
+      // args: [
+      //   '--no-sandbox',              // Required when running as root in Docker
+      //   '--disable-setuid-sandbox',  // Required in some Linux containers
+      //   '--disable-dev-shm-usage',   // Required when /dev/shm is limited (Docker default)
+      // ],
     });
 
     this.isInitialized = true;

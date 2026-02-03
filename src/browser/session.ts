@@ -124,13 +124,16 @@ export class BrowserSessionInstance extends EventEmitter {
       this.setStatus('starting');
 
       // Create isolated browser context
-      // Note: In debug mode (headful), setting deviceScaleFactor: 2 prevents content
-      // resizing/flickering on high-DPI displays when taking screenshots (see playwright#2576)
+      // IMPORTANT: deviceScaleFactor must be 1 for coordinate-based interactions to work correctly
+      // in headless mode. The Computer Use model returns coordinates based on the viewport size,
+      // and a different scale factor would cause misaligned clicks.
       this.context = await this.browser.newContext({
         viewport: this.config.viewport,
         userAgent: this.config.userAgent,
-        ...(this.config.debugMode && { deviceScaleFactor: 2 }),
+        deviceScaleFactor: 1,
       });
+
+      console.log(`[Browser] Context created with viewport: ${this.config.viewport.width}x${this.config.viewport.height}, deviceScaleFactor: 1`);
 
       // Create new page
       this.page = await this.context.newPage();
@@ -140,8 +143,9 @@ export class BrowserSessionInstance extends EventEmitter {
         viewport: this.config.viewport,
       });
 
-      // Start periodic screenshots if debug mode is enabled
-      if (this.config.debugMode && this.config.screenshotInterval) {
+      // Start periodic screenshots for live preview updates
+      // Always enable in headless mode so the UI can show progress
+      if (this.config.screenshotInterval) {
         this.startPeriodicScreenshots(this.config.screenshotInterval);
       }
 
@@ -219,6 +223,20 @@ export class BrowserSessionInstance extends EventEmitter {
     // Emit click marker if applicable
     if (result.coordinates && this.config.showClickMarkers) {
       this.emitClickMarker(result.action.type as 'click' | 'type' | 'scroll', result.coordinates);
+    }
+
+    // Emit screenshot event so frontend preview updates
+    // The strategy may have performed multiple actions internally
+    if (result.screenshot) {
+      this.emit('screenshot', result.screenshot, result.pageUrl || this.page.url(), result.pageTitle || await this.page.title());
+    } else {
+      // Capture a fresh screenshot if result doesn't have one
+      try {
+        const screenshot = await this.captureScreenshot();
+        this.emit('screenshot', screenshot, this.page.url(), await this.page.title());
+      } catch (e) {
+        // Ignore screenshot errors
+      }
     }
 
     return result;

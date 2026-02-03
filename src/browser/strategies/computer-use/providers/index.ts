@@ -6,8 +6,8 @@
 
 export * from './types.js';
 export { GoogleComputerUseProvider } from './google.js';
-export { AzureOpenAIComputerUseProvider } from './azure-openai.js';
 export { OpenAIComputerUseProvider } from './openai.js';
+export { AzureOpenAIComputerUseProvider } from './azure-openai.js';
 
 import type { ComputerUseProvider } from '../../../types.js';
 import type { IComputerUseProvider, ComputerUseProviderConfig } from './types.js';

@@ -20,7 +20,9 @@ You can either:
 The browser will use its configured strategy (Computer Use or DOM) to execute the instruction.
 
 For Computer Use strategy: Actions are coordinate-based (x, y)
-For DOM strategy: Actions use CSS selectors`;
+For DOM strategy: Actions use CSS selectors
+
+IMPORTANT: Only ONE action can execute at a time per session. Do not call this tool multiple times in parallel for the same session.`;
 
   readonly inputSchema = {
     type: 'object',
@@ -73,6 +75,9 @@ For DOM strategy: Actions use CSS selectors`;
 
   private browserManager: BrowserSessionManager;
 
+  // Lock to prevent parallel execution on the same session
+  private static sessionLocks: Map<string, boolean> = new Map();
+
   constructor(browserManager: BrowserSessionManager) {
     this.browserManager = browserManager;
   }
@@ -94,6 +99,18 @@ For DOM strategy: Actions use CSS selectors`;
         error: `Invalid sessionId format: "${sessionId}". Expected a valid UUID.`,
       };
     }
+
+    // Check if this session is already executing an action
+    if (BrowserActionTool.sessionLocks.get(sessionId)) {
+      console.log(`[BrowserActionTool] Session ${sessionId} is busy, rejecting parallel call`);
+      return {
+        success: false,
+        error: 'Session is busy executing another action. Wait for it to complete before sending another instruction.',
+      };
+    }
+
+    // Set the lock
+    BrowserActionTool.sessionLocks.set(sessionId, true);
 
     try {
       // If instruction is provided, use executeInstruction
@@ -173,6 +190,9 @@ For DOM strategy: Actions use CSS selectors`;
         success: false,
         error: error instanceof Error ? error.message : String(error),
       };
+    } finally {
+      // Release the lock
+      BrowserActionTool.sessionLocks.delete(sessionId);
     }
   }
 }

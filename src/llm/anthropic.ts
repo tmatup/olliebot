@@ -149,13 +149,14 @@ export class AnthropicProvider implements LLMProvider {
     }
 
     if (DEBUG_LLM) {
+      const lastMessageContent = conversationMessages[conversationMessages.length - 1]?.content;
       console.log('[Anthropic] streamWithTools request:', {
         model: this.model,
         messageCount: conversationMessages.length,
         toolCount: tools?.length || 0,
         lastMessageRole: conversationMessages[conversationMessages.length - 1]?.role,
-        lastMessageContentType: Array.isArray(conversationMessages[conversationMessages.length - 1]?.content)
-          ? conversationMessages[conversationMessages.length - 1]?.content.map((c: { type: string }) => c.type)
+        lastMessageContentType: Array.isArray(lastMessageContent)
+          ? lastMessageContent.map((c: { type: string }) => c.type)
           : 'string',
       });
     }

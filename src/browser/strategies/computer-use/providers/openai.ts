@@ -2,7 +2,7 @@
  * OpenAI Computer Use Provider
  *
  * Implements Computer Use using OpenAI's computer-use-preview model.
- * Uses the Responses API format for computer use scenarios.
+ * Also serves as base class for Azure OpenAI provider.
  */
 
 import type {
@@ -21,23 +21,48 @@ const DEFAULT_BASE_URL = 'https://api.openai.com/v1/responses';
  *
  * Uses shared OpenAI credentials from environment:
  * - OPENAI_API_KEY: API key
- * - OPENAI_BASE_URL: Optional base URL override (defaults to https://api.openai.com/v1/responses)
+ * - OPENAI_BASE_URL: Optional base URL override
  * - BROWSER_MODEL: Model name (defaults to computer-use-preview)
  */
 export class OpenAIComputerUseProvider implements IComputerUseProvider {
-  readonly name = 'openai' as const;
+  readonly name: 'openai' | 'azure_openai' = 'openai';
 
-  private apiKey: string;
-  private baseUrl: string;
-  private model: string;
-  private maxTokens: number;
-  private pendingSafetyChecks?: OpenAIPendingSafetyCheck[];
+  protected apiKey: string;
+  protected endpoint: string;
+  protected model: string;
+  protected maxTokens: number;
+  private pendingSafetyChecks?: PendingSafetyCheck[];
 
   constructor(config: ComputerUseProviderConfig = {}) {
     this.apiKey = config.apiKey || process.env.OPENAI_API_KEY || '';
+    this.endpoint = process.env.OPENAI_BASE_URL || DEFAULT_BASE_URL;
     this.model = config.model || process.env.BROWSER_MODEL || DEFAULT_MODEL;
     this.maxTokens = config.maxTokens || 1024;
-    this.baseUrl = process.env.OPENAI_BASE_URL || DEFAULT_BASE_URL;
+  }
+
+  /** Provider name for logging */
+  protected get providerName(): string {
+    return 'OpenAI';
+  }
+
+  /** Auth header name */
+  protected get authHeader(): string {
+    return 'Authorization';
+  }
+
+  /** Auth header value */
+  protected get authValue(): string {
+    return `Bearer ${this.apiKey}`;
+  }
+
+  /** Whether to include max_output_tokens in requests */
+  protected get includeMaxTokens(): boolean {
+    return true;
+  }
+
+  /** Screenshot output type in follow-up requests */
+  protected get screenshotOutputType(): 'computer_screenshot' | 'input_image' {
+    return 'computer_screenshot';
   }
 
   isAvailable(): boolean {
@@ -46,7 +71,7 @@ export class OpenAIComputerUseProvider implements IComputerUseProvider {
 
   async getAction(params: GetActionParams): Promise<ComputerUseResponse> {
     if (!this.isAvailable()) {
-      throw new Error('OpenAI API key not configured');
+      throw new Error(`${this.providerName} API not configured`);
     }
 
     const { screenshot, instruction, screenSize, previousResponseId, previousCallId } = params;
@@ -65,38 +90,39 @@ export class OpenAIComputerUseProvider implements IComputerUseProvider {
         previousCallId
       );
 
-      const response = await fetch(this.baseUrl, {
+      const response = await fetch(this.endpoint, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${this.apiKey}`,
+          [this.authHeader]: this.authValue,
         },
         body: JSON.stringify(requestBody),
       });
 
       if (!response.ok) {
         const errorText = await response.text();
-        console.error('[OpenAI CU] API error:', response.status, errorText);
-        throw new Error(`OpenAI API error: ${response.status} - ${errorText}`);
+        console.error(`[${this.providerName} CU] API error:`, response.status, errorText);
+        throw new Error(`${this.providerName} API error: ${response.status} - ${errorText}`);
       }
 
-      const data = await response.json() as OpenAIResponsesAPIResponse;
+      const data = await response.json() as ResponsesAPIResponse;
       if (data.error) {
         const errorMessage = data.error.message || JSON.stringify(data.error);
-        console.error('[OpenAI CU] API error body:', data.error);
-        throw new Error(`OpenAI API error: ${errorMessage}`);
+        console.error(`[${this.providerName} CU] API error body:`, data.error);
+        throw new Error(`${this.providerName} API error: ${errorMessage}`);
       }
-      console.log(`[OpenAI CU] ${previousResponseId ? 'follow-up' : 'initial'} request -> response: ${data.id}`);
 
-      return this.parseResponse(data, screenSize);
+      console.log(`[${this.providerName} CU] ${previousResponseId ? 'follow-up' : 'initial'} request -> response: ${data.id}`);
+
+      return this.parseResponse(data);
     } catch (error) {
-      console.error('[OpenAI CU] Error getting action:', error);
+      console.error(`[${this.providerName} CU] Error getting action:`, error);
       throw error;
     }
   }
 
   /**
-   * Builds the request body for OpenAI Responses API.
+   * Builds the request body for the Responses API.
    */
   private buildRequestBody(
     instruction: string,
@@ -104,8 +130,8 @@ export class OpenAIComputerUseProvider implements IComputerUseProvider {
     screenSize: { width: number; height: number },
     previousResponseId?: string,
     previousCallId?: string
-  ): OpenAIResponsesAPIRequest {
-    const tools: OpenAITool[] = [
+  ): ResponsesAPIRequest {
+    const tools: Tool[] = [
       {
         type: 'computer_use_preview',
         display_width: screenSize.width,
@@ -114,30 +140,46 @@ export class OpenAIComputerUseProvider implements IComputerUseProvider {
       },
     ];
 
+    const baseRequest: ResponsesAPIRequest = {
+      model: this.model,
+      tools,
+      truncation: 'auto',
+      input: [],
+    };
+
+    if (this.includeMaxTokens) {
+      baseRequest.max_output_tokens = this.maxTokens;
+    }
+
+    // Follow-up request: use previous_response_id and computer_call_output
     if (previousResponseId && previousCallId) {
+      // Send full safety check objects for acknowledgement
+      const acknowledgedChecks = this.pendingSafetyChecks;
+
+      if (acknowledgedChecks?.length) {
+        console.log(`[${this.providerName} CU] Acknowledging safety checks:`, acknowledgedChecks.map(sc => sc.id));
+      }
+
       return {
-        model: this.model,
-        max_output_tokens: this.maxTokens,
+        ...baseRequest,
         previous_response_id: previousResponseId,
         input: [
           {
             type: 'computer_call_output',
             call_id: previousCallId,
-            acknowledged_safety_checks: this.pendingSafetyChecks,
+            ...(acknowledgedChecks?.length && { acknowledged_safety_checks: acknowledgedChecks }),
             output: {
-              type: 'computer_screenshot',
+              type: this.screenshotOutputType,
               image_url: `data:image/png;base64,${screenshot}`,
             },
           },
         ],
-        tools,
-        truncation: 'auto',
       };
     }
 
+    // Initial request: send instruction with screenshot
     return {
-      model: this.model,
-      max_output_tokens: this.maxTokens,
+      ...baseRequest,
       input: [
         {
           type: 'message',
@@ -154,41 +196,37 @@ export class OpenAIComputerUseProvider implements IComputerUseProvider {
           ],
         },
       ],
-      tools,
-      truncation: 'auto',
     };
   }
 
   /**
-   * Parses the OpenAI Responses API response.
+   * Parses the Responses API response.
    */
-  private parseResponse(
-    data: OpenAIResponsesAPIResponse,
-    screenSize: { width: number; height: number }
-  ): ComputerUseResponse {
+  private parseResponse(data: ResponsesAPIResponse): ComputerUseResponse {
     const computerCall = data.output?.find(
-      (item): item is OpenAIComputerCallOutput => item.type === 'computer_call'
+      (item): item is ComputerCallOutput => item.type === 'computer_call'
     );
 
     const reasoningItem = data.output?.find(
-      (item): item is OpenAIReasoningOutput => item.type === 'reasoning'
+      (item): item is ReasoningOutput => item.type === 'reasoning'
     );
 
     const textMessage = data.output?.find(
-      (item): item is OpenAIMessageOutput => item.type === 'message'
+      (item): item is MessageOutput => item.type === 'message'
     );
 
+    // Extract reasoning from reasoning item or text message
     let reasoning: string | undefined;
     if (reasoningItem?.summary?.length) {
       const summaryText = reasoningItem.summary.find(item => item.type === 'summary_text');
       reasoning = summaryText?.text;
     }
-
     if (!reasoning && textMessage?.content) {
       const textContent = textMessage.content.find(item => item.type === 'output_text');
       reasoning = textContent?.text;
     }
 
+    // If no computer call, task is complete
     if (!computerCall) {
       return {
         isComplete: true,
@@ -199,7 +237,12 @@ export class OpenAIComputerUseProvider implements IComputerUseProvider {
       };
     }
 
+    // Store pending safety checks for acknowledgement in next request
     this.pendingSafetyChecks = computerCall.pending_safety_checks;
+
+    if (this.pendingSafetyChecks?.length) {
+      console.log(`[${this.providerName} CU] Pending safety checks to acknowledge:`, this.pendingSafetyChecks.map(sc => sc.id));
+    }
 
     const action = this.parseComputerAction(computerCall.action);
 
@@ -216,7 +259,7 @@ export class OpenAIComputerUseProvider implements IComputerUseProvider {
   /**
    * Parses a computer action from the API response.
    */
-  private parseComputerAction(apiAction: OpenAIComputerAction): ComputerUseAction {
+  private parseComputerAction(apiAction: ComputerAction): ComputerUseAction {
     switch (apiAction.type) {
       case 'click':
         return {
@@ -272,7 +315,7 @@ export class OpenAIComputerUseProvider implements IComputerUseProvider {
         };
 
       default:
-        console.warn('[OpenAI CU] Unknown action type:', apiAction.type);
+        console.warn(`[${this.providerName} CU] Unknown action type:`, apiAction.type);
         return {
           type: 'wait',
           duration: 500,
@@ -324,55 +367,55 @@ export class OpenAIComputerUseProvider implements IComputerUseProvider {
 // Types for OpenAI Responses API
 // =============================================================================
 
-interface OpenAIResponsesAPIRequest {
+interface ResponsesAPIRequest {
   model: string;
-  input: OpenAIInputItem[];
-  tools: OpenAITool[];
+  input: InputItem[];
+  tools: Tool[];
   truncation?: 'auto' | 'disabled';
   previous_response_id?: string;
   max_output_tokens?: number;
 }
 
-type OpenAIInputItem = OpenAIMessageInput | OpenAIComputerCallOutputInput;
+type InputItem = MessageInput | ComputerCallOutputInput;
 
-interface OpenAIMessageInput {
+interface MessageInput {
   type: 'message';
   role: 'user' | 'assistant' | 'system';
-  content: string | OpenAIContentPart[];
+  content: string | ContentPart[];
 }
 
-interface OpenAIComputerCallOutputInput {
+interface ComputerCallOutputInput {
   type: 'computer_call_output';
   call_id: string;
-  acknowledged_safety_checks?: OpenAIPendingSafetyCheck[];
+  acknowledged_safety_checks?: PendingSafetyCheck[];
   output: {
-    type: 'computer_screenshot';
+    type: 'computer_screenshot' | 'input_image';
     image_url: string;
   };
 }
 
-interface OpenAIContentPart {
+interface ContentPart {
   type: 'input_text' | 'input_image';
   text?: string;
   image_url?: string;
 }
 
-interface OpenAITool {
+interface Tool {
   type: 'computer_use_preview';
   display_width: number;
   display_height: number;
   environment: 'browser' | 'desktop' | 'mobile';
 }
 
-interface OpenAIPendingSafetyCheck {
+interface PendingSafetyCheck {
   id: string;
   code?: string;
   message?: string;
 }
 
-interface OpenAIResponsesAPIResponse {
+interface ResponsesAPIResponse {
   id?: string;
-  output?: OpenAIOutputItem[];
+  output?: OutputItem[];
   error?: {
     message?: string;
     type?: string;
@@ -380,19 +423,16 @@ interface OpenAIResponsesAPIResponse {
   };
 }
 
-type OpenAIOutputItem =
-  | OpenAIComputerCallOutput
-  | OpenAIMessageOutput
-  | OpenAIReasoningOutput;
+type OutputItem = ComputerCallOutput | MessageOutput | ReasoningOutput;
 
-interface OpenAIComputerCallOutput {
+interface ComputerCallOutput {
   type: 'computer_call';
   call_id: string;
-  action: OpenAIComputerAction;
-  pending_safety_checks?: OpenAIPendingSafetyCheck[];
+  action: ComputerAction;
+  pending_safety_checks?: PendingSafetyCheck[];
 }
 
-interface OpenAIMessageOutput {
+interface MessageOutput {
   type: 'message';
   role: 'assistant';
   content: Array<{
@@ -401,7 +441,7 @@ interface OpenAIMessageOutput {
   }>;
 }
 
-interface OpenAIReasoningOutput {
+interface ReasoningOutput {
   type: 'reasoning';
   summary?: Array<{
     type: 'summary_text';
@@ -409,7 +449,7 @@ interface OpenAIReasoningOutput {
   }>;
 }
 
-interface OpenAIComputerAction {
+interface ComputerAction {
   type: 'click' | 'double_click' | 'scroll' | 'type' | 'keypress' | 'wait' | 'screenshot' | 'drag';
   x?: number;
   y?: number;

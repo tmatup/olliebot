@@ -118,7 +118,13 @@ export class WebChannel implements Channel {
   private sendToClient(clientId: string, data: unknown): void {
     const client = this.clients.get(clientId);
     if (client && client.ws.readyState === WebSocket.OPEN) {
-      client.ws.send(JSON.stringify(data));
+      try {
+        client.ws.send(JSON.stringify(data));
+      } catch (error) {
+        // Socket may have been closed between readyState check and send
+        console.warn(`[WebChannel] Failed to send to client ${clientId}:`, (error as Error).message);
+        this.clients.delete(clientId);
+      }
     }
   }
 
@@ -221,10 +227,21 @@ export class WebChannel implements Channel {
    */
   broadcast(data: unknown): void {
     const message = JSON.stringify(data);
+    const closedClients: string[] = [];
     for (const client of this.clients.values()) {
       if (client.ws.readyState === WebSocket.OPEN) {
-        client.ws.send(message);
+        try {
+          client.ws.send(message);
+        } catch (error) {
+          // Socket may have been closed between readyState check and send
+          console.warn(`[WebChannel] Failed to broadcast to client ${client.id}:`, (error as Error).message);
+          closedClients.push(client.id);
+        }
       }
+    }
+    // Clean up closed clients
+    for (const clientId of closedClients) {
+      this.clients.delete(clientId);
     }
   }
 

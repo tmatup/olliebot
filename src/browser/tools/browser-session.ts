@@ -95,6 +95,30 @@ If not specified, defaults from server configuration (BROWSER_PROVIDER, BROWSER_
     const strategy = params.strategy as BrowserStrategyType | undefined;
     const provider = params.provider as ComputerUseProvider | DOMProvider | undefined;
 
+    // Check if a session with this name already exists and is active
+    if (name) {
+      const existingSessions = await this.browserManager.listSessions();
+      const existingSession = existingSessions.find(
+        (s) => s.name === name && s.status === 'active'
+      );
+      if (existingSession) {
+        console.log(`[BrowserSessionTool] Reusing existing session "${name}" (${existingSession.id})`);
+        return {
+          success: true,
+          output: {
+            message: `Reusing existing browser session: ${existingSession.id}`,
+            session: {
+              id: existingSession.id,
+              name: existingSession.name,
+              status: existingSession.status,
+              strategy: existingSession.strategy,
+              provider: existingSession.provider,
+            },
+          },
+        };
+      }
+    }
+
     const config: Record<string, unknown> = {};
     if (strategy) {
       config.strategy = strategy;
