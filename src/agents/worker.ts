@@ -11,7 +11,7 @@ import type { LLMService } from '../llm/service.js';
 import type { LLMMessage } from '../llm/types.js';
 import { getDb } from '../db/index.js';
 import type { WebChannel } from '../channels/web.js';
-import { stripBinaryDataForLLM } from '../utils/index.js';
+import { formatToolResultBlocks } from '../utils/index.js';
 
 export class WorkerAgent extends AbstractAgent {
   private currentTaskId?: string;
@@ -235,21 +235,7 @@ export class WorkerAgent extends AbstractAgent {
 
           // Add tool results as user message with content blocks (required by Anthropic)
           // Note: tool_result.content MUST be a string, not an object
-          const toolResultBlocks = results.map((result) => {
-            let content: string;
-            if (result.success) {
-              const stripped = stripBinaryDataForLLM(result.output);
-              content = typeof stripped === 'string' ? stripped : JSON.stringify(stripped);
-            } else {
-              content = `Error: ${result.error}`;
-            }
-            return {
-              type: 'tool_result' as const,
-              tool_use_id: result.requestId,
-              content,
-              is_error: !result.success,
-            };
-          });
+          const toolResultBlocks = formatToolResultBlocks(results);
           llmMessages.push({
             role: 'user',
             content: toolResultBlocks,
