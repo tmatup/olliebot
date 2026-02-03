@@ -81,6 +81,11 @@ export class OpenAIComputerUseProvider implements IComputerUseProvider {
       }
 
       const data = await response.json() as OpenAIResponsesAPIResponse;
+      if (data.error) {
+        const errorMessage = data.error.message || JSON.stringify(data.error);
+        console.error('[OpenAI CU] API error body:', data.error);
+        throw new Error(`OpenAI API error: ${errorMessage}`);
+      }
       console.log(`[OpenAI CU] ${previousResponseId ? 'follow-up' : 'initial'} request -> response: ${data.id}`);
 
       return this.parseResponse(data, screenSize);
@@ -161,14 +166,6 @@ export class OpenAIComputerUseProvider implements IComputerUseProvider {
     data: OpenAIResponsesAPIResponse,
     screenSize: { width: number; height: number }
   ): ComputerUseResponse {
-    if (data.error) {
-      return {
-        isComplete: false,
-        reasoning: `API Error: ${data.error.message || JSON.stringify(data.error)}`,
-        rawResponse: data,
-      };
-    }
-
     const computerCall = data.output?.find(
       (item): item is OpenAIComputerCallOutput => item.type === 'computer_call'
     );
