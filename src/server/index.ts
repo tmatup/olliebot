@@ -2,6 +2,7 @@ import express, { type Express, type Request, type Response } from 'express';
 import cors from 'cors';
 import { createServer, type Server } from 'http';
 import { WebSocketServer } from 'ws';
+import { setupVoiceProxy } from './voice-proxy.js';
 import type { SupervisorAgent } from '../agents/types.js';
 import { WebChannel } from '../channels/index.js';
 import { getDb } from '../db/index.js';
@@ -30,6 +31,15 @@ export interface ServerConfig {
   // LLM configuration for model capabilities endpoint
   mainProvider?: string;
   mainModel?: string;
+  // Voice-to-Text configuration
+  voiceProvider?: 'openai' | 'azure_openai';
+  voiceModel?: string;
+  // Azure OpenAI config (needed for voice proxy)
+  azureOpenaiApiKey?: string;
+  azureOpenaiEndpoint?: string;
+  azureOpenaiApiVersion?: string;
+  // OpenAI config (needed for voice proxy)
+  openaiApiKey?: string;
   // Security: Network binding (default: localhost only)
   bindAddress?: string;
   // Security: Allowed CORS origins (default: localhost dev servers)
@@ -52,8 +62,15 @@ export class OllieBotServer {
   private ragProjectService?: RAGProjectService;
   private mainProvider?: string;
   private mainModel?: string;
+  private voiceProvider?: 'openai' | 'azure_openai';
+  private voiceModel?: string;
+  private azureOpenaiApiKey?: string;
+  private azureOpenaiEndpoint?: string;
+  private azureOpenaiApiVersion?: string;
+  private openaiApiKey?: string;
   private bindAddress: string;
   private allowedOrigins: string[];
+  private voiceWss: WebSocketServer;
 
   constructor(config: ServerConfig) {
     this.port = config.port;
@@ -67,6 +84,12 @@ export class OllieBotServer {
     this.ragProjectService = config.ragProjectService;
     this.mainProvider = config.mainProvider;
     this.mainModel = config.mainModel;
+    this.voiceProvider = config.voiceProvider;
+    this.voiceModel = config.voiceModel;
+    this.azureOpenaiApiKey = config.azureOpenaiApiKey;
+    this.azureOpenaiEndpoint = config.azureOpenaiEndpoint;
+    this.azureOpenaiApiVersion = config.azureOpenaiApiVersion;
+    this.openaiApiKey = config.openaiApiKey;
 
     // Security: Default to localhost-only binding (Layer 1: Network Binding)
     this.bindAddress = config.bindAddress ?? '127.0.0.1';
@@ -75,8 +98,8 @@ export class OllieBotServer {
     this.allowedOrigins = config.allowedOrigins ?? [
       'http://localhost:5173',   // Vite dev server
       'http://127.0.0.1:5173',   // Vite dev server (alternate)
-      'http://localhost:3000',   // Same-origin (production build)
-      'http://127.0.0.1:3000',   // Same-origin (alternate)
+      'http://localhost:5173',   // Same-origin (production build)
+      'http://127.0.0.1:5173',   // Same-origin (alternate)
     ];
 
     // Create Express app
@@ -106,24 +129,34 @@ export class OllieBotServer {
     // Create HTTP server
     this.server = createServer(this.app);
 
-    // Create WebSocket server with origin validation (Layer 2: CORS for WebSocket)
-    this.wss = new WebSocketServer({
-      server: this.server,
-      path: '/', // Explicit root path
-      verifyClient: (info, callback) => {
-        const origin = info.origin || info.req.headers.origin;
-        // Allow connections with no origin (same-origin, CLI tools, etc.)
-        if (!origin) {
-          callback(true);
-          return;
-        }
-        if (this.allowedOrigins.includes(origin)) {
-          callback(true);
-        } else {
-          console.warn(`[WebSocket] Blocked connection from origin: ${origin}`);
-          callback(false, 403, 'Origin not allowed');
-        }
-      },
+    // Create WebSocket servers with noServer mode for proper multi-path support
+    this.wss = new WebSocketServer({ noServer: true });
+    this.voiceWss = new WebSocketServer({ noServer: true });
+
+    // Handle HTTP upgrade requests and route to appropriate WebSocket server
+    this.server.on('upgrade', (request, socket, head) => {
+      const origin = request.headers.origin;
+      const pathname = new URL(request.url || '/', `http://${request.headers.host}`).pathname;
+
+      // Verify origin for security
+      if (origin && !this.allowedOrigins.includes(origin)) {
+        console.warn(`[WebSocket] Blocked connection from origin: ${origin} on path: ${pathname}`);
+        socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
+        socket.destroy();
+        return;
+      }
+
+      if (pathname === '/voice') {
+        this.voiceWss.handleUpgrade(request, socket, head, (ws) => {
+          this.voiceWss.emit('connection', ws, request);
+        });
+      } else if (pathname === '/' || pathname === '') {
+        this.wss.handleUpgrade(request, socket, head, (ws) => {
+          this.wss.emit('connection', ws, request);
+        });
+      } else {
+        socket.destroy();
+      }
     });
 
     // Create and configure web channel
@@ -843,6 +876,16 @@ export class OllieBotServer {
       console.error('[WebSocket] Server error:', error);
     });
 
+    // Setup voice WebSocket proxy for real-time transcription
+    setupVoiceProxy(this.voiceWss, {
+      voiceProvider: this.voiceProvider,
+      voiceModel: this.voiceModel,
+      azureOpenaiApiKey: this.azureOpenaiApiKey,
+      azureOpenaiEndpoint: this.azureOpenaiEndpoint,
+      azureOpenaiApiVersion: this.azureOpenaiApiVersion,
+      openaiApiKey: this.openaiApiKey,
+    });
+
     // Initialize web channel and attach to WebSocket server
     await this.webChannel.init();
     this.webChannel.attachToServer(this.wss);
@@ -921,10 +964,12 @@ export class OllieBotServer {
 
   async stop(): Promise<void> {
     return new Promise((resolve, reject) => {
-      this.wss.close(() => {
-        this.server.close((err) => {
-          if (err) reject(err);
-          else resolve();
+      this.voiceWss.close(() => {
+        this.wss.close(() => {
+          this.server.close((err) => {
+            if (err) reject(err);
+            else resolve();
+          });
         });
       });
     });

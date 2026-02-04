@@ -31,7 +31,7 @@ export const EvalRunner = memo(function EvalRunner({ evaluation, suite, viewingR
   // Set up WebSocket listener for eval events
   useEffect(() => {
     // Use the same backend URL as the main WebSocket connection
-    const wsUrl = import.meta.env.VITE_WS_URL || 'ws://localhost:3000';
+    const wsUrl = import.meta.env.VITE_WS_URL || 'ws://localhost:5173';
 
     console.log('[EvalRunner] Connecting WebSocket to:', wsUrl);
     const ws = new WebSocket(wsUrl);

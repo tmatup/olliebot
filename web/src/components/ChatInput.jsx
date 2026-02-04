@@ -1,4 +1,5 @@
-import { useState, useRef, useEffect, useImperativeHandle, memo } from 'react';
+import { useState, useRef, useEffect, useImperativeHandle, memo, useCallback } from 'react';
+import { useVoiceToText } from '../hooks/useVoiceToText';
 
 /**
  * ChatInput component - manages local input state to prevent parent re-renders.
@@ -25,7 +26,108 @@ export const ChatInput = memo(function ChatInput({
   const [hashtagMenuOpen, setHashtagMenuOpen] = useState(false);
   const [hashtagMenuPosition, setHashtagMenuPosition] = useState({ top: 0, left: 0 });
   const [hashtagMenuIndex, setHashtagMenuIndex] = useState(0);
+  const [voiceAutoSubmit, setVoiceAutoSubmit] = useState(false);
+  const [voiceError, setVoiceError] = useState(null);
+  const [voiceInputWasEmpty, setVoiceInputWasEmpty] = useState(false);
   const textareaRef = useRef(null);
+
+  // Voice-to-text hook
+  const {
+    isRecording,
+    isConnecting,
+    startRecording,
+    stopRecording,
+    transcript,
+  } = useVoiceToText({
+    onTranscript: useCallback((text) => {
+      // Update input with transcribed text
+      setInput(text);
+      if (onInputChange) {
+        onInputChange(text);
+      }
+    }, [onInputChange]),
+    onFinalTranscript: useCallback((text) => {
+      // If input was empty when recording started, auto-submit
+      // Note: voiceInputWasEmpty is captured in closure when recording starts
+      if (text.trim()) {
+        setVoiceAutoSubmit(true);
+      }
+    }, []),
+    onError: useCallback((error) => {
+      setVoiceError(error);
+      // Clear error after 3 seconds
+      setTimeout(() => setVoiceError(null), 3000);
+    }, []),
+  });
+
+  // Handle auto-submit after voice recording
+  useEffect(() => {
+    if (voiceAutoSubmit && voiceInputWasEmpty && input.trim() && !isRecording && !isConnecting) {
+      setVoiceAutoSubmit(false);
+      setVoiceInputWasEmpty(false);
+      // Small delay to ensure UI updates
+      const timer = setTimeout(() => {
+        onSubmit(input);
+        setInput('');
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [voiceAutoSubmit, voiceInputWasEmpty, input, isRecording, isConnecting, onSubmit]);
+
+  // Voice button handlers
+  const handleVoiceMouseDown = useCallback((e) => {
+    e.preventDefault();
+    if (isRecording || isConnecting || !isConnected || isResponsePending) return;
+
+    // Remember if input was empty when starting
+    const wasEmpty = !input.trim();
+    setVoiceInputWasEmpty(wasEmpty);
+    startRecording();
+  }, [isRecording, isConnecting, isConnected, isResponsePending, input, startRecording]);
+
+  const handleVoiceMouseUp = useCallback((e) => {
+    e.preventDefault();
+    if (!isRecording && !isConnecting) return;
+    stopRecording();
+  }, [isRecording, isConnecting, stopRecording]);
+
+  // Also handle mouse leave to stop recording if user drags away
+  const handleVoiceMouseLeave = useCallback((e) => {
+    if (isRecording) {
+      stopRecording();
+    }
+  }, [isRecording, stopRecording]);
+
+  // Keyboard shortcut for voice (Ctrl+Shift+V or Cmd+Shift+V)
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'V') {
+        e.preventDefault();
+        if (!isRecording && !isConnecting && isConnected && !isResponsePending) {
+          const wasEmpty = !input.trim();
+          setVoiceInputWasEmpty(wasEmpty);
+          startRecording();
+        }
+      }
+    };
+
+    const handleKeyUp = (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'V') {
+        e.preventDefault();
+        if (isRecording) {
+          stopRecording();
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+    };
+  }, [isRecording, isConnecting, isConnected, isResponsePending, input, startRecording, stopRecording]);
 
   // Expose methods to parent via ref
   useImperativeHandle(ref, () => ({
@@ -265,14 +367,63 @@ export const ChatInput = memo(function ChatInput({
           onChange={handleLocalInputChange}
           onKeyDown={handleLocalKeyDown}
           onPaste={onPaste}
-          placeholder={isResponsePending ? "Waiting for response..." : "Type a message... (Shift + Enter for new line)"}
+          placeholder={
+            isRecording
+              ? "Listening..."
+              : isConnecting
+              ? "Connecting..."
+              : isResponsePending
+              ? "Waiting for response..."
+              : "Type a message... (Shift + Enter for new line)"
+          }
           disabled={!isConnected || isResponsePending}
+          readOnly={isRecording && voiceInputWasEmpty}
           rows={3}
         />
+        {voiceError && (
+          <div className="voice-error">{voiceError}</div>
+        )}
       </div>
-      <button type="submit" disabled={!isConnected || isResponsePending || (!input.trim() && attachments.length === 0)}>
-        {isResponsePending ? 'Waiting...' : 'Send'}
-      </button>
+      <div className="button-stack">
+        <button
+          type="button"
+          className={`voice-button ${isRecording ? 'recording' : ''} ${isConnecting ? 'connecting' : ''}`}
+          onMouseDown={handleVoiceMouseDown}
+          onMouseUp={handleVoiceMouseUp}
+          onMouseLeave={handleVoiceMouseLeave}
+          onTouchStart={handleVoiceMouseDown}
+          onTouchEnd={handleVoiceMouseUp}
+          disabled={!isConnected || isResponsePending}
+          title="Hold to talk (Ctrl+Shift+V)"
+        >
+          {isConnecting ? (
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <circle cx="12" cy="12" r="10" strokeDasharray="32" strokeDashoffset="32">
+                <animate attributeName="stroke-dashoffset" dur="1s" repeatCount="indefinite" values="32;0" />
+              </circle>
+            </svg>
+          ) : isRecording ? (
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+              <circle cx="12" cy="12" r="6">
+                <animate attributeName="r" dur="0.8s" repeatCount="indefinite" values="6;8;6" />
+              </circle>
+            </svg>
+          ) : (
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+              <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+              <line x1="12" y1="19" x2="12" y2="23" />
+              <line x1="8" y1="23" x2="16" y2="23" />
+            </svg>
+          )}
+        </button>
+        <button type="submit" disabled={!isConnected || isResponsePending || (!input.trim() && attachments.length === 0)}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <line x1="22" y1="2" x2="11" y2="13" />
+            <polygon points="22 2 15 22 11 13 2 9 22 2" />
+          </svg>
+        </button>
+      </div>
     </form>
   );
 }, (prevProps, nextProps) => {

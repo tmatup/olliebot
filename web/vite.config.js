@@ -22,7 +22,7 @@ export default defineConfig(({ mode }) => {
   // Useful for remote development where only one port is forwarded
   const wsProxyConfig = useWsProxy ? {
     '/ws': {
-      target: 'ws://localhost:3000',
+      target: 'ws://localhost:5173',
       ws: true,
       rewrite: (path) => path.replace(/^\/ws/, ''),
       configure: (proxy) => {
@@ -68,11 +68,11 @@ export default defineConfig(({ mode }) => {
       proxy: {
         // Proxy API requests to backend
         '/api': {
-          target: 'http://localhost:3000',
+          target: 'http://localhost:5173',
           changeOrigin: true,
         },
         // WebSocket proxy (only when VITE_USE_WS_PROXY=true for remote dev)
-        // By default, useWebSocket.js connects directly to port 3000 to avoid proxy errors
+        // By default, useWebSocket.js connects to port 5173
         ...wsProxyConfig,
       },
       // HMR configuration for Windows compatibility

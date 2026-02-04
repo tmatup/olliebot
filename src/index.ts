@@ -115,7 +115,7 @@ function parseMCPServers(configStr: string): MCPServerConfig[] {
 
 // Configuration
 const CONFIG = {
-  port: parseInt(process.env.PORT || '3000', 10),
+  port: parseInt(process.env.PORT || '5173', 10),
   dbPath: process.env.DB_PATH || join(process.cwd(), 'user', 'data', 'olliebot.db'),
   tasksDir: join(process.cwd(), 'user', 'tasks'),
   skillsDir: join(process.cwd(), 'user', 'skills'),
@@ -158,6 +158,10 @@ const CONFIG = {
   // Falls back to main provider/model if not specified
   deepResearchProvider: process.env.DEEP_RESEARCH_PROVIDER || process.env.MAIN_PROVIDER || 'anthropic',
   deepResearchModel: process.env.DEEP_RESEARCH_MODEL || process.env.MAIN_MODEL || 'claude-sonnet-4-20250514',
+
+  // Voice-to-Text configuration
+  voiceProvider: (process.env.VOICE_PROVIDER || 'azure_openai') as 'openai' | 'azure_openai',
+  voiceModel: process.env.VOICE_MODEL || 'gpt-4o-realtime-preview',
 };
 
 function createLLMProvider(provider: string, model: string): LLMProvider {
@@ -598,6 +602,12 @@ async function main(): Promise<void> {
       ragProjectService: ragProjectService || undefined,
       mainProvider: CONFIG.mainProvider,
       mainModel: CONFIG.mainModel,
+      voiceProvider: CONFIG.voiceProvider,
+      voiceModel: CONFIG.voiceModel,
+      azureOpenaiApiKey: CONFIG.azureOpenaiApiKey,
+      azureOpenaiEndpoint: CONFIG.azureOpenaiEndpoint,
+      azureOpenaiApiVersion: CONFIG.azureOpenaiApiVersion,
+      openaiApiKey: CONFIG.openaiApiKey,
     });
     await server.start();
 
