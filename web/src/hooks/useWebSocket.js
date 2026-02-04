@@ -58,9 +58,11 @@ export function useWebSocket({ onMessage, onOpen, onClose, onError }) {
 
         ws.onmessage = (event) => {
           if (!isMountedRef.current) return;
+          // Extract callback before try block (React Compiler compatibility)
+          const onMessageCallback = callbacksRef.current.onMessage;
           try {
             const data = JSON.parse(event.data);
-            callbacksRef.current.onMessage?.(data);
+            if (onMessageCallback) onMessageCallback(data);
           } catch (error) {
             console.error('[WebSocket] Failed to parse message:', error);
           }

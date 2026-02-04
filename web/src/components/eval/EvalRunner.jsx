@@ -45,38 +45,45 @@ export function EvalRunner({ evaluation, suite, viewingResults, onBack }) {
     };
 
     ws.onmessage = (event) => {
+      let data;
       try {
-        const data = JSON.parse(event.data);
+        data = JSON.parse(event.data);
+      } catch {
+        // Ignore non-JSON messages
+        return;
+      }
 
-        // Debug: log all eval-related events
-        if (data.type?.startsWith('eval_')) {
-          console.log('[EvalRunner] WebSocket event:', data.type, 'jobId:', data.jobId, 'current jobId:', jobIdRef.current);
-        }
+      // Check if this is an eval event (avoiding optional chaining in try)
+      const dataType = data.type;
+      const isEvalEvent = dataType && dataType.startsWith('eval_');
 
-        // Process events for our current job OR if we're waiting for any job to start
-        if (data.type?.startsWith('eval_') && data.jobId) {
-          // If we don't have a jobId yet but we're loading, accept the first matching event
-          const isOurJob = jobIdRef.current && data.jobId === jobIdRef.current;
+      // Debug: log all eval-related events
+      if (isEvalEvent) {
+        console.log('[EvalRunner] WebSocket event:', dataType, 'jobId:', data.jobId, 'current jobId:', jobIdRef.current);
+      }
 
-          if (isOurJob) {
-            if (data.type === 'eval_progress') {
-              console.log('[EvalRunner] Updating progress:', data.current, '/', data.total);
-              setProgress({ current: data.current, total: data.total });
-            } else if (data.type === 'eval_complete') {
-              console.log('[EvalRunner] Evaluation complete');
-              setResults(data.results);
-              setProgress(null);
-              setLoading(false);
-            } else if (data.type === 'eval_error') {
-              console.log('[EvalRunner] Evaluation error:', data.error);
-              setError(data.error || 'Evaluation failed');
-              setProgress(null);
-              setLoading(false);
-            }
+      // Process events for our current job OR if we're waiting for any job to start
+      if (isEvalEvent && data.jobId) {
+        // If we don't have a jobId yet but we're loading, accept the first matching event
+        const isOurJob = jobIdRef.current && data.jobId === jobIdRef.current;
+
+        if (isOurJob) {
+          if (dataType === 'eval_progress') {
+            console.log('[EvalRunner] Updating progress:', data.current, '/', data.total);
+            setProgress({ current: data.current, total: data.total });
+          } else if (dataType === 'eval_complete') {
+            console.log('[EvalRunner] Evaluation complete');
+            setResults(data.results);
+            setProgress(null);
+            setLoading(false);
+          } else if (dataType === 'eval_error') {
+            console.log('[EvalRunner] Evaluation error:', data.error);
+            const errorMsg = data.error;
+            setError(errorMsg ? errorMsg : 'Evaluation failed');
+            setProgress(null);
+            setLoading(false);
           }
         }
-      } catch (err) {
-        // Ignore non-JSON messages
       }
     };
 
@@ -98,11 +105,14 @@ export function EvalRunner({ evaluation, suite, viewingResults, onBack }) {
         const res = await fetch('/api/eval/jobs');
         if (res.ok) {
           const data = await res.json();
-          const runningJob = data.jobs?.find(job => job.status === 'running');
-          if (runningJob) {
-            setJobId(runningJob.jobId);
-            setLoading(true);
-            setProgress({ current: 0, total: 1 }); // Will be updated by WebSocket
+          const jobs = data.jobs;
+          if (jobs) {
+            const runningJob = jobs.find(job => job.status === 'running');
+            if (runningJob) {
+              setJobId(runningJob.jobId);
+              setLoading(true);
+              setProgress({ current: 0, total: 1 }); // Will be updated by WebSocket
+            }
           }
         }
       } catch (err) {
@@ -111,15 +121,6 @@ export function EvalRunner({ evaluation, suite, viewingResults, onBack }) {
     };
     checkActiveJobs();
   }, []);
-
-  // Load evaluation details when selected
-  useEffect(() => {
-    if (evaluation) {
-      loadEvaluationDetails(evaluation.path);
-    } else {
-      setEvalDetails(null);
-    }
-  }, [evaluation]);
 
   const loadEvaluationDetails = async (path) => {
     try {
@@ -132,6 +133,15 @@ export function EvalRunner({ evaluation, suite, viewingResults, onBack }) {
       console.error('Failed to load evaluation details:', err);
     }
   };
+
+  // Load evaluation details when selected
+  useEffect(() => {
+    if (evaluation) {
+      loadEvaluationDetails(evaluation.path);
+    } else {
+      setEvalDetails(null);
+    }
+  }, [evaluation, loadEvaluationDetails]);
 
   const runEvaluation = async () => {
     if (!evaluation) return;
@@ -148,7 +158,7 @@ export function EvalRunner({ evaluation, suite, viewingResults, onBack }) {
         body: JSON.stringify({
           evaluationPath: evaluation.path,
           runs: runConfig.runs,
-          alternativePrompt: runConfig.alternativePrompt || undefined,
+          alternativePrompt: runConfig.alternativePrompt,
         }),
       });
 
@@ -159,7 +169,8 @@ export function EvalRunner({ evaluation, suite, viewingResults, onBack }) {
         jobIdRef.current = data.jobId;
         setJobId(data.jobId);
       } else {
-        throw new Error('Failed to start evaluation');
+        setError('Failed to start evaluation');
+        setLoading(false);
       }
     } catch (err) {
       setError(err.message);
@@ -190,7 +201,8 @@ export function EvalRunner({ evaluation, suite, viewingResults, onBack }) {
         jobIdRef.current = data.jobId;
         setJobId(data.jobId);
       } else {
-        throw new Error('Failed to start suite');
+        setError('Failed to start suite');
+        setLoading(false);
       }
     } catch (err) {
       setError(err.message);

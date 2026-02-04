@@ -45,9 +45,10 @@ function RAGProjects({
     setUploadingProjectId(projectId);
     try {
       await onUpload(projectId, files);
-    } finally {
-      setUploadingProjectId(null);
+    } catch {
+      // Error handling done in parent
     }
+    setUploadingProjectId(null);
   };
   return (
     <div className="accordion">

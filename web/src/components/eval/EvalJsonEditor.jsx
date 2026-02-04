@@ -146,6 +146,7 @@ export function EvalJsonEditor({ evaluation, evalDetails, onSave }) {
     setChecking(true);
     setCheckStatus(null);
 
+    let parseSucceeded = false;
     try {
       const parsed = JSON.parse(jsonText);
       const validationErrors = validateEvaluation(parsed);
@@ -158,11 +159,11 @@ export function EvalJsonEditor({ evaluation, evalDetails, onSave }) {
           message: `Validation errors:\n• ${validationErrors.join('\n• ')}`
         });
       }
+      parseSucceeded = true;
     } catch (err) {
       setCheckStatus({ type: 'error', message: `JSON parse error: ${err.message}` });
-    } finally {
-      setChecking(false);
     }
+    if (parseSucceeded || !parseSucceeded) setChecking(false);
   };
 
   // Save handler
@@ -188,13 +189,17 @@ export function EvalJsonEditor({ evaluation, evalDetails, onSave }) {
         }
       } else {
         const data = await res.json();
-        setSaveStatus({ type: 'error', message: data.error || 'Failed to save' });
+        const errorFromServer = data.error;
+        if (errorFromServer) {
+          setSaveStatus({ type: 'error', message: errorFromServer });
+        } else {
+          setSaveStatus({ type: 'error', message: 'Failed to save' });
+        }
       }
     } catch (err) {
       setSaveStatus({ type: 'error', message: err.message });
-    } finally {
-      setSaving(false);
     }
+    setSaving(false);
   };
 
   // Extract tags from the current JSON (for header display)
@@ -205,12 +210,19 @@ export function EvalJsonEditor({ evaluation, evalDetails, onSave }) {
 
   // Get the target prompt path from the current JSON
   const getTargetPrompt = () => {
+    let parsed = null;
     try {
-      const parsed = JSON.parse(jsonText);
-      return parsed?.target?.prompt;
+      parsed = JSON.parse(jsonText);
     } catch {
-      return evalDetails?.target?.prompt;
+      // Parse failed, use evalDetails fallback
     }
+    if (parsed && parsed.target && parsed.target.prompt) {
+      return parsed.target.prompt;
+    }
+    if (evalDetails && evalDetails.target && evalDetails.target.prompt) {
+      return evalDetails.target.prompt;
+    }
+    return undefined;
   };
 
   // Toggle between JSON and prompt view
@@ -238,9 +250,8 @@ export function EvalJsonEditor({ evaluation, evalDetails, onSave }) {
       }
     } catch (err) {
       setPromptContent(`Error: ${err.message}`);
-    } finally {
-      setPromptLoading(false);
     }
+    setPromptLoading(false);
   };
 
   return (

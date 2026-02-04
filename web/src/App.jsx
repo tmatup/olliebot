@@ -19,6 +19,7 @@ import { BrowserSessions } from './components/BrowserSessions';
 import { BrowserPreview } from './components/BrowserPreview';
 import RAGProjects from './components/RAGProjects';
 import { SourcePanel } from './components/SourcePanel';
+import { ChatInput } from './components/ChatInput';
 
 // Code block component with copy button and language header
 // Uses deferred rendering for faster initial display
@@ -325,11 +326,18 @@ function App() {
 
   // Ref to track current conversation ID for use in callbacks
   const currentConversationIdRef = useRef(currentConversationId);
-  currentConversationIdRef.current = currentConversationId;
 
   // Ref to track navigate function for use in callbacks
   const navigateRef = useRef(navigate);
-  navigateRef.current = navigate;
+
+  // Update refs via effect (not during render - React Compiler requirement)
+  useEffect(() => {
+    currentConversationIdRef.current = currentConversationId;
+  }, [currentConversationId]);
+
+  useEffect(() => {
+    navigateRef.current = navigate;
+  }, [navigate]);
 
   const handleMessage = (data) => {
     // Helper to check if message belongs to current conversation
@@ -697,7 +705,15 @@ function App() {
     loadStartupDataRef.current = async () => {
       try {
         const res = await fetch('/api/startup');
-        if (!res.ok) throw new Error('Startup API not available');
+        if (!res.ok) {
+          console.error('Startup API not available');
+          setConversations([]);
+          setCurrentConversationId(null);
+          setMessages([]);
+          setConversationsLoading(false);
+          setShowSkeleton(false);
+          return;
+        }
         const data = await res.json();
 
         // Model capabilities
@@ -759,16 +775,20 @@ function App() {
         setSkills(data.skills);
         setMcps(data.mcps);
         setTools(data.tools);
-        setRagProjects(data.ragProjects || []);
+        const ragProjectsData = data.ragProjects;
+        if (ragProjectsData) {
+          setRagProjects(ragProjectsData);
+        } else {
+          setRagProjects([]);
+        }
       } catch (error) {
         console.error('Failed to load startup data:', error);
         setConversations([]);
         setCurrentConversationId(null);
         setMessages([]);
-      } finally {
-        setConversationsLoading(false);
-        setShowSkeleton(false);
       }
+      setConversationsLoading(false);
+      setShowSkeleton(false);
     };
   }, []);
 
@@ -1410,6 +1430,7 @@ function App() {
   };
 
   const handleInteractionResponse = (response) => {
+    if (!pendingInteraction) return;
     sendMessage({
       type: 'interaction-response',
       requestId: pendingInteraction.id,
@@ -1668,10 +1689,11 @@ function App() {
 
   // Handle RAG project indexing (force=true for full re-index)
   const handleIndexProject = async (projectId, force = false) => {
+    let url = '/api/rag/projects/' + projectId + '/index';
+    if (force) {
+      url = url + '?force=true';
+    }
     try {
-      const url = force
-        ? `/api/rag/projects/${projectId}/index?force=true`
-        : `/api/rag/projects/${projectId}/index`;
       const res = await fetch(url, {
         method: 'POST',
       });
@@ -1686,11 +1708,11 @@ function App() {
 
   // Handle file upload to RAG project via drag-and-drop
   const handleUploadToProject = async (projectId, files) => {
+    const formData = new FormData();
+    for (let i = 0; i < files.length; i++) {
+      formData.append('files', files[i]);
+    }
     try {
-      const formData = new FormData();
-      for (const file of files) {
-        formData.append('files', file);
-      }
       const res = await fetch(`/api/rag/projects/${projectId}/upload?index=true`, {
         method: 'POST',
         body: formData,
@@ -2012,28 +2034,36 @@ function App() {
                       )}
 
                       {/* MCP Tools by Server */}
-                      {Object.entries(tools.mcp).map(([serverName, serverTools]) => (
-                        <div key={serverName} className="tool-group">
-                          <button
-                            className={`tool-group-header ${expandedToolGroups[`mcp_${serverName}`] ? 'expanded' : ''}`}
-                            onClick={() => setExpandedToolGroups(prev => ({ ...prev, [`mcp_${serverName}`]: !prev[`mcp_${serverName}`] }))}
-                          >
-                            <span className="tool-group-arrow">{expandedToolGroups[`mcp_${serverName}`] ? '▼' : '▶'}</span>
-                            <span className="tool-group-icon">🔌</span>
-                            <span className="tool-group-name">MCP: {serverName}</span>
-                            <span className="tool-group-count">{serverTools.length}</span>
-                          </button>
-                          {expandedToolGroups[`mcp_${serverName}`] && (
-                            <div className="tool-group-items">
-                              {serverTools.map((tool) => (
-                                <div key={tool.name} className="tool-item" title={formatToolTooltip(tool)}>
-                                  <span className="tool-name">{tool.name}</span>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      ))}
+                      {Object.entries(tools.mcp).map(([serverName, serverTools]) => {
+                        const groupKey = 'mcp_' + serverName;
+                        const isExpanded = expandedToolGroups[groupKey];
+                        return (
+                          <div key={serverName} className="tool-group">
+                            <button
+                              className={`tool-group-header ${isExpanded ? 'expanded' : ''}`}
+                              onClick={() => setExpandedToolGroups(prev => {
+                                const updated = { ...prev };
+                                updated[groupKey] = !prev[groupKey];
+                                return updated;
+                              })}
+                            >
+                              <span className="tool-group-arrow">{isExpanded ? '▼' : '▶'}</span>
+                              <span className="tool-group-icon">🔌</span>
+                              <span className="tool-group-name">MCP: {serverName}</span>
+                              <span className="tool-group-count">{serverTools.length}</span>
+                            </button>
+                            {isExpanded && (
+                              <div className="tool-group-items">
+                                {serverTools.map((tool) => (
+                                  <div key={tool.name} className="tool-item" title={formatToolTooltip(tool)}>
+                                    <span className="tool-name">{tool.name}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
                     </>
                   )}
                 </div>

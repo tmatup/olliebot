@@ -17,10 +17,6 @@ export function EvalSidebar({
     results: false,
   });
 
-  useEffect(() => {
-    loadData();
-  }, []);
-
   const loadData = async () => {
     setLoading(true);
     try {
@@ -31,23 +27,41 @@ export function EvalSidebar({
 
       if (suitesRes.ok) {
         const data = await suitesRes.json();
-        setSuites(data.suites || []);
+        const suitesData = data.suites;
+        if (suitesData) {
+          setSuites(suitesData);
+        } else {
+          setSuites([]);
+        }
         // Auto-expand first suite if none expanded
-        if (data.suites?.length > 0 && Object.keys(expandedSuites).length === 0) {
-          setExpandedSuites({ [data.suites[0].id]: true });
+        if (suitesData) {
+          if (suitesData.length > 0) {
+            const noExpandedYet = Object.keys(expandedSuites).length === 0;
+            if (noExpandedYet) {
+              setExpandedSuites({ [suitesData[0].id]: true });
+            }
+          }
         }
       }
 
       if (resultsRes.ok) {
         const data = await resultsRes.json();
-        setRecentResults(data.results || []);
+        const resultsData = data.results;
+        if (resultsData) {
+          setRecentResults(resultsData);
+        } else {
+          setRecentResults([]);
+        }
       }
     } catch (error) {
       console.error('Failed to load evaluations:', error);
-    } finally {
-      setLoading(false);
     }
+    setLoading(false);
   };
+
+  useEffect(() => {
+    loadData();
+  }, []);
 
   const toggleSection = (section) => {
     setExpandedSections(prev => ({
@@ -96,8 +110,14 @@ export function EvalSidebar({
         // Remove from local state
         setRecentResults(prev => prev.filter(r => r.filePath !== result.filePath));
         // Clear selection if this was the selected result
-        if (selectedResult?.filePath === result.filePath) {
-          onSelectResult?.(null);
+        let selectedPath = null;
+        if (selectedResult) {
+          selectedPath = selectedResult.filePath;
+        }
+        if (selectedPath === result.filePath) {
+          if (onSelectResult) {
+            onSelectResult(null);
+          }
         }
       } else {
         console.error('Failed to delete result');
