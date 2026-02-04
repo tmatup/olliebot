@@ -163,7 +163,10 @@ export function useVoiceToText({ onTranscript, onFinalTranscript, onError } = {}
 
     const connect = () => {
       if (!mounted) return;
-      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) return;
+      // Don't create new connection if one already exists and is usable
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        return;
+      }
 
       const wsUrl = getWsUrl();
       console.log('[Voice] Connecting to backend:', wsUrl,
@@ -224,9 +227,12 @@ export function useVoiceToText({ onTranscript, onFinalTranscript, onError } = {}
         clearTimeout(reconnectTimeoutRef.current);
       }
       if (wsRef.current) {
-        // Only close if OPEN or CONNECTING (not already CLOSING/CLOSED)
-        if (wsRef.current.readyState === WebSocket.OPEN ||
-            wsRef.current.readyState === WebSocket.CONNECTING) {
+        // Remove handlers before closing to prevent errors
+        wsRef.current.onopen = null;
+        wsRef.current.onmessage = null;
+        wsRef.current.onerror = null;
+        wsRef.current.onclose = null;
+        if (wsRef.current.readyState === WebSocket.OPEN) {
           wsRef.current.close();
         }
         wsRef.current = null;
@@ -262,6 +268,9 @@ export function useVoiceToText({ onTranscript, onFinalTranscript, onError } = {}
 
     // Handle messages from the AudioWorklet processor
     processor.port.onmessage = (event) => {
+      // Guard: ignore messages if processor was cleaned up
+      if (!processorRef.current) return;
+
       const pcm16Buffer = event.data; // ArrayBuffer from worklet
 
       // Convert to base64
