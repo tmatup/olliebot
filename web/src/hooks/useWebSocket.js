@@ -107,7 +107,8 @@ export function useWebSocket({ onMessage, onOpen, onClose, onError }) {
         wsRef.current.close();
       }
     };
-  }, [connect]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const sendMessage = (data) => {
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
