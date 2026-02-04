@@ -14,6 +14,7 @@ import { getDb } from '../db/index.js';
 import type { WebChannel } from '../channels/web.js';
 import { formatToolResultBlocks } from '../utils/index.js';
 import type { CitationSource, CitationSourceType, StoredCitationData } from '../citations/types.js';
+import { SUB_AGENT_TIMEOUT_MS } from '../deep-research/constants.js';
 
 export class WorkerAgent extends AbstractAgent {
   private currentTaskId?: string;
@@ -531,9 +532,9 @@ export class WorkerAgent extends AbstractAgent {
       timeoutId = setTimeout(() => {
         if (this.pendingSubAgentResults.has(subAgent.identity.id)) {
           this.pendingSubAgentResults.delete(subAgent.identity.id);
-          reject(new Error(`Sub-agent ${subAgent.identity.id} timed out after 5 minutes`));
+          reject(new Error(`Sub-agent ${subAgent.identity.id} timed out after ${SUB_AGENT_TIMEOUT_MS / 1000}s`));
         }
-      }, 5 * 60 * 1000); // 5 minute timeout
+      }, SUB_AGENT_TIMEOUT_MS);
     });
 
     // Clean up timeout when promise resolves (declared outside promise constructor)

@@ -115,6 +115,13 @@ export const MAX_PARALLEL_WORKERS = 4;
 export const STEP_TIMEOUT_MS = 120_000; // 2 minutes
 
 /**
+ * Timeout for sub-agent delegation in milliseconds.
+ * This should be longer than STEP_TIMEOUT_MS as it includes agent spawn time,
+ * task execution, and communication overhead.
+ */
+export const SUB_AGENT_TIMEOUT_MS = 300_000; // 5 minutes
+
+/**
  * Total timeout for entire research task in milliseconds.
  */
 export const TOTAL_TIMEOUT_MS = 1_800_000; // 30 minutes
