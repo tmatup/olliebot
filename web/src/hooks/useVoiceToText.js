@@ -54,7 +54,7 @@ export function useVoiceToText({ onTranscript, onFinalTranscript, onError } = {}
   // Compute WebSocket URL (use same origin - Vite proxies /voice to backend)
   const getWsUrl = useCallback(() => {
     const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    return `${wsProtocol}//${window.location.host}/voice`;
+    return `${wsProtocol}//localhost:3000/voice`;
   }, []);
 
   // Handle incoming WebSocket messages
@@ -217,7 +217,11 @@ export function useVoiceToText({ onTranscript, onFinalTranscript, onError } = {}
         clearTimeout(reconnectTimeoutRef.current);
       }
       if (wsRef.current) {
-        wsRef.current.close();
+        // Only close if OPEN or CONNECTING (not already CLOSING/CLOSED)
+        if (wsRef.current.readyState === WebSocket.OPEN ||
+            wsRef.current.readyState === WebSocket.CONNECTING) {
+          wsRef.current.close();
+        }
         wsRef.current = null;
       }
       // Release microphone on unmount
