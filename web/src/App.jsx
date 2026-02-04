@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, memo } from 'react';
+import React, { useState, useEffect, useRef, memo, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import rehypeRaw from 'rehype-raw';
@@ -1422,13 +1422,13 @@ function App() {
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   };
 
-  // Toggle accordion
-  const toggleAccordion = (key) => {
+  // Toggle accordion - memoized since it only uses state setter
+  const toggleAccordion = useCallback((key) => {
     setExpandedAccordions((prev) => ({
       ...prev,
       [key]: !prev[key],
     }));
-  };
+  }, []);
 
   // Format tool tooltip with description and inputs
   const formatToolTooltip = (tool) => {
@@ -1513,18 +1513,18 @@ function App() {
     navigate('/eval');
   };
 
-  // Handle browser session selection
-  const handleSelectBrowserSession = (sessionId) => {
+  // Handle browser session selection - memoized
+  const handleSelectBrowserSession = useCallback((sessionId) => {
     setSelectedBrowserSessionId(sessionId);
-  };
+  }, []);
 
   // Close browser preview
   const handleCloseBrowserPreview = () => {
     setSelectedBrowserSessionId(null);
   };
 
-  // Close browser session (terminate the browser process)
-  const handleCloseBrowserSession = (sessionId) => {
+  // Close browser session (terminate the browser process) - memoized
+  const handleCloseBrowserSession = useCallback((sessionId) => {
     // Optimistically remove from UI immediately
     setBrowserSessions((prev) => prev.filter((s) => s.id !== sessionId));
     setBrowserScreenshots((prev) => {
@@ -1532,25 +1532,24 @@ function App() {
       delete next[sessionId];
       return next;
     });
-    if (selectedBrowserSessionId === sessionId) {
-      setSelectedBrowserSessionId(null);
-    }
+    // Use functional update to check selected session without dependency
+    setSelectedBrowserSessionId((prev) => prev === sessionId ? null : prev);
     // Send close request to server
     sendMessage({ type: 'browser-action', action: 'close', sessionId });
-  };
+  }, [sendMessage]);
 
-  // Toggle browser sessions accordion
-  const handleToggleBrowserSessions = () => {
+  // Toggle browser sessions accordion - memoized
+  const handleToggleBrowserSessions = useCallback(() => {
     toggleAccordion('browserSessions');
-  };
+  }, [toggleAccordion]);
 
-  // Toggle RAG projects accordion
-  const handleToggleRagProjects = () => {
+  // Toggle RAG projects accordion - memoized
+  const handleToggleRagProjects = useCallback(() => {
     toggleAccordion('ragProjects');
-  };
+  }, [toggleAccordion]);
 
-  // Handle RAG project indexing (force=true for full re-index)
-  const handleIndexProject = async (projectId, force = false) => {
+  // Handle RAG project indexing (force=true for full re-index) - memoized
+  const handleIndexProject = useCallback(async (projectId, force = false) => {
     let url = '/api/rag/projects/' + projectId + '/index';
     if (force) {
       url = url + '?force=true';
@@ -1566,10 +1565,10 @@ function App() {
     } catch (error) {
       console.error('Failed to start indexing:', error);
     }
-  };
+  }, []);
 
-  // Handle file upload to RAG project via drag-and-drop
-  const handleUploadToProject = async (projectId, files) => {
+  // Handle file upload to RAG project via drag-and-drop - memoized
+  const handleUploadToProject = useCallback(async (projectId, files) => {
     const formData = new FormData();
     for (let i = 0; i < files.length; i++) {
       formData.append('files', files[i]);
@@ -1589,7 +1588,7 @@ function App() {
     } catch (error) {
       console.error('Failed to upload files:', error);
     }
-  };
+  }, []);
 
   // Get selected browser session object
   const selectedBrowserSession = browserSessions.find(
