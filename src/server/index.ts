@@ -150,7 +150,7 @@ export class OllieBotServer {
         this.voiceWss.handleUpgrade(request, socket, head, (ws) => {
           this.voiceWss.emit('connection', ws, request);
         });
-      } else if (pathname === '/' || pathname === '') {
+      } else if (pathname === '/') {
         this.wss.handleUpgrade(request, socket, head, (ws) => {
           this.wss.emit('connection', ws, request);
         });
