@@ -24,6 +24,8 @@ export function useVoiceToText({ onTranscript, onFinalTranscript, onError } = {}
   const reconnectAttemptsRef = useRef(0);
   const reconnectDelayRef = useRef(2000); // Start with 2s delay
   const workletLoadedRef = useRef(false);
+  const pendingAutoSubmitRef = useRef(false); // Track if we should auto-submit after transcript settles
+  const transcriptDebounceRef = useRef(null); // Debounce timer for transcript settling
 
   // Callback refs to avoid stale closures
   const onFinalTranscriptRef = useRef(onFinalTranscript);
@@ -54,6 +56,8 @@ export function useVoiceToText({ onTranscript, onFinalTranscript, onError } = {}
     if (audioContextRef.current) {
       audioContextRef.current.close();
       audioContextRef.current = null;
+      // Reset worklet flag - new AudioContext needs worklet reloaded
+      workletLoadedRef.current = false;
     }
     // Keep streamRef.current alive for fast subsequent recordings
   }, []);
@@ -97,13 +101,26 @@ export function useVoiceToText({ onTranscript, onFinalTranscript, onError } = {}
             ws.send(JSON.stringify({ type: 'input_audio_buffer.commit' }));
             ws.send(JSON.stringify({ type: 'voice.stop' }));
           }
-          const finalTranscript = accumulatedTranscriptRef.current;
           cleanupAudio();
           setIsRecording(false);
           setIsConnecting(false);
           setIsFlushing(false);
           pendingStopRef.current = false;
-          onFinalTranscriptRef.current?.(finalTranscript);
+
+          // If there's already a transcript, start the debounce timer
+          // Otherwise, wait for transcript updates to trigger it
+          if (accumulatedTranscriptRef.current.trim()) {
+            if (transcriptDebounceRef.current) {
+              clearTimeout(transcriptDebounceRef.current);
+            }
+            transcriptDebounceRef.current = setTimeout(() => {
+              transcriptDebounceRef.current = null;
+              if (pendingAutoSubmitRef.current) {
+                pendingAutoSubmitRef.current = false;
+                onFinalTranscriptRef.current?.();
+              }
+            }, 800);
+          }
         }
         break;
       }
@@ -115,6 +132,20 @@ export function useVoiceToText({ onTranscript, onFinalTranscript, onError } = {}
           accumulatedTranscriptRef.current = newTranscript;
           setTranscript(newTranscript);
           onTranscriptRef.current?.(newTranscript);
+
+          // If pending auto-submit, debounce and trigger when transcript settles
+          if (pendingAutoSubmitRef.current) {
+            if (transcriptDebounceRef.current) {
+              clearTimeout(transcriptDebounceRef.current);
+            }
+            transcriptDebounceRef.current = setTimeout(() => {
+              transcriptDebounceRef.current = null;
+              if (pendingAutoSubmitRef.current) {
+                pendingAutoSubmitRef.current = false;
+                onFinalTranscriptRef.current?.();
+              }
+            }, 800);
+          }
         }
         break;
       }
@@ -124,6 +155,20 @@ export function useVoiceToText({ onTranscript, onFinalTranscript, onError } = {}
           const newTranscript = accumulatedTranscriptRef.current + msg.delta;
           setTranscript(newTranscript);
           onTranscriptRef.current?.(newTranscript);
+
+          // If pending auto-submit, debounce and trigger when transcript settles
+          if (pendingAutoSubmitRef.current) {
+            if (transcriptDebounceRef.current) {
+              clearTimeout(transcriptDebounceRef.current);
+            }
+            transcriptDebounceRef.current = setTimeout(() => {
+              transcriptDebounceRef.current = null;
+              if (pendingAutoSubmitRef.current) {
+                pendingAutoSubmitRef.current = false;
+                onFinalTranscriptRef.current?.();
+              }
+            }, 800);
+          }
         }
         break;
       }
@@ -133,6 +178,20 @@ export function useVoiceToText({ onTranscript, onFinalTranscript, onError } = {}
           accumulatedTranscriptRef.current = msg.transcript;
           setTranscript(msg.transcript);
           onTranscriptRef.current?.(msg.transcript);
+
+          // If pending auto-submit, debounce and trigger when transcript settles
+          if (pendingAutoSubmitRef.current) {
+            if (transcriptDebounceRef.current) {
+              clearTimeout(transcriptDebounceRef.current);
+            }
+            transcriptDebounceRef.current = setTimeout(() => {
+              transcriptDebounceRef.current = null;
+              if (pendingAutoSubmitRef.current) {
+                pendingAutoSubmitRef.current = false;
+                onFinalTranscriptRef.current?.();
+              }
+            }, 800);
+          }
         }
         break;
       }
@@ -330,11 +389,18 @@ export function useVoiceToText({ onTranscript, onFinalTranscript, onError } = {}
   const startRecording = useCallback(async () => {
     if (isRecording || isConnecting) return;
 
+    // Reset all state for fresh recording (cancel any pending flush/auto-submit)
     setTranscript('');
+    setIsFlushing(false);
     accumulatedTranscriptRef.current = '';
     sessionReadyRef.current = false;
     audioBufferRef.current = [];
     pendingStopRef.current = false;
+    pendingAutoSubmitRef.current = false;
+    if (transcriptDebounceRef.current) {
+      clearTimeout(transcriptDebounceRef.current);
+      transcriptDebounceRef.current = null;
+    }
 
     // Ensure WebSocket is connected
     if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
@@ -389,6 +455,7 @@ export function useVoiceToText({ onTranscript, onFinalTranscript, onError } = {}
     if (!sessionReadyRef.current) {
       console.log('[Voice] Session not ready, marking pending stop');
       pendingStopRef.current = true;
+      pendingAutoSubmitRef.current = true;
       setIsFlushing(true);
       setIsRecording(false);
       return;
@@ -401,16 +468,30 @@ export function useVoiceToText({ onTranscript, onFinalTranscript, onError } = {}
       ws.send(JSON.stringify({ type: 'voice.stop' }));
     }
 
-    const finalTranscript = accumulatedTranscriptRef.current;
-
     cleanupAudio();
     setIsRecording(false);
     setIsConnecting(false);
     setIsFlushing(false);
 
-    onFinalTranscriptRef.current?.(finalTranscript);
+    // Mark pending auto-submit - will trigger when transcript settles
+    // Don't start timer here - wait for transcript updates to arrive
+    pendingAutoSubmitRef.current = true;
 
-    return finalTranscript;
+    // If there's already a transcript, start the debounce timer
+    // Otherwise, wait for transcript updates to trigger it
+    if (accumulatedTranscriptRef.current.trim()) {
+      if (transcriptDebounceRef.current) {
+        clearTimeout(transcriptDebounceRef.current);
+      }
+      transcriptDebounceRef.current = setTimeout(() => {
+        transcriptDebounceRef.current = null;
+        if (pendingAutoSubmitRef.current) {
+          pendingAutoSubmitRef.current = false;
+          onFinalTranscriptRef.current?.();
+        }
+      }, 800);
+    }
+
   }, [isRecording, isConnecting, cleanupAudio]);
 
   // Release microphone and cleanup (call when turning voice mode OFF)

@@ -113,60 +113,34 @@ export const ChatInput = memo(function ChatInput({
     } else {
       // Turn ON - will trigger prepareRecording via useEffect
       setVoiceModeOn(true);
+      // Also start recording immediately on initial click (treat as hover-in)
+      // Use setTimeout to allow state update and prepareRecording to complete first
+      setTimeout(() => {
+        if (!isRecording && !isConnecting && !isFlushing && isConnected && isWsConnected && !isResponsePending && !input.trim()) {
+          setVoiceInputWasEmpty(true);
+          startRecording();
+        }
+      }, 100);
     }
-  }, [voiceModeOn, releaseRecording]);
+  }, [voiceModeOn, releaseRecording, isRecording, isConnecting, isFlushing, isConnected, isWsConnected, isResponsePending, input, startRecording]);
 
   // Voice button handlers (only active when voice mode is ON)
   // Hover-to-talk: enter to start, leave to stop
   const handleVoiceMouseEnter = useCallback(() => {
     // Only hover-to-talk when voice mode is ON
     if (!voiceModeOn) return;
-    // Voice only enabled when input is empty and not flushing
-    if (isRecording || isConnecting || isFlushing || !isConnected || !isWsConnected || isResponsePending || input.trim()) return;
+    // Voice only enabled when input is empty (isFlushing is OK - startRecording will reset it)
+    if (isRecording || isConnecting || !isConnected || !isWsConnected || isResponsePending || input.trim()) return;
 
     setVoiceInputWasEmpty(true);
     startRecording();
-  }, [voiceModeOn, isRecording, isConnecting, isFlushing, isConnected, isWsConnected, isResponsePending, input, startRecording]);
+  }, [voiceModeOn, isRecording, isConnecting, isConnected, isWsConnected, isResponsePending, input, startRecording]);
 
   const handleVoiceMouseLeave = useCallback(() => {
     if (isRecording || isConnecting) {
       stopRecording();
     }
   }, [isRecording, isConnecting, stopRecording]);
-
-  // Keyboard shortcut for voice (Ctrl+Shift+V or Cmd+Shift+V)
-  useEffect(() => {
-    const handleKeyDown = (e) => {
-      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'V') {
-        e.preventDefault();
-        // Only allow voice when voice mode is ON, input is empty and not flushing
-        if (voiceModeOn && !isRecording && !isConnecting && !isFlushing && isConnected && isWsConnected && !isResponsePending && !input.trim()) {
-          setVoiceInputWasEmpty(true);
-          startRecording();
-        }
-      }
-    };
-
-    const handleKeyUp = (e) => {
-      // Stop recording when any part of the shortcut (Ctrl/Cmd, Shift, or V) is released
-      if (!isRecording) {
-        return;
-      }
-
-      if (e.key === 'Control' || e.key === 'Meta' || e.key === 'Shift' || e.key === 'V') {
-        e.preventDefault();
-        stopRecording();
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    window.addEventListener('keyup', handleKeyUp);
-
-    return () => {
-      window.removeEventListener('keydown', handleKeyDown);
-      window.removeEventListener('keyup', handleKeyUp);
-    };
-  }, [voiceModeOn, isRecording, isConnecting, isFlushing, isConnected, isWsConnected, isResponsePending, input, startRecording, stopRecording]);
 
   // Expose methods to parent via ref
   useImperativeHandle(ref, () => ({
