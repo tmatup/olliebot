@@ -53,19 +53,43 @@ const ProjectItem = memo(function ProjectItem({ project, onSelect }) {
 
 ### 2. `useCallback()` - Still Required for Callback Props
 
-**Problem:** Inline arrow functions create new references on every render, breaking child memoization.
+**Problem:** Inline functions create new references on every render, which breaks `memo()`.
+
+**Example of the problem:**
 
 ```jsx
-// BAD - creates new function reference every render
-<RAGProjects onToggle={() => toggleAccordion('ragProjects')} />
+// Parent component re-renders (e.g., user types in input)
+function App() {
+  const [input, setInput] = useState('');
 
-// GOOD - stable function reference
-const handleToggleRagProjects = useCallback(() => {
-  toggleAccordion('ragProjects');
-}, [toggleAccordion]);
+  // WITHOUT useCallback: new function created EVERY render
+  const handleToggle = () => toggleAccordion('rag');
 
-<RAGProjects onToggle={handleToggleRagProjects} />
+  // Even though RAGProjects is wrapped in memo(),
+  // it re-renders because handleToggle is a "new" prop every time
+  return <RAGProjects onToggle={handleToggle} />
+}
 ```
+
+**The chain of events:**
+1. User types → `input` state changes → App re-renders
+2. App re-renders → `handleToggle` is recreated (new function reference)
+3. `memo()` compares props: `prevProps.onToggle !== nextProps.onToggle` (different references!)
+4. RAGProjects re-renders even though nothing meaningful changed
+
+**Solution with useCallback:**
+
+```jsx
+const handleToggle = useCallback(() => {
+  toggleAccordion('rag');
+}, []); // Same function reference across renders
+```
+
+Now `memo()` sees `prevProps.onToggle === nextProps.onToggle` and skips the re-render.
+
+**Why doesn't React Compiler fix this?**
+
+React Compiler memoizes values **inside** a component, but it doesn't guarantee that memoized values stay stable **across the parent-child boundary** when passed as props. The [GitHub issue #33628](https://github.com/facebook/react/issues/33628) confirms this is a known limitation.
 
 **When useCallback is required:**
 - Callback is passed to a memoized child component
