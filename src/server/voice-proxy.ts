@@ -97,6 +97,8 @@ export function setupVoiceProxy(voiceWss: WebSocketServer, config: VoiceProxyCon
             type: 'error',
             error: { message: `Upstream error: ${res.statusCode} ${res.statusMessage}`, body }
           }));
+          // Reset upstream so future connection attempts can proceed
+          upstream = null;
         });
       });
 
