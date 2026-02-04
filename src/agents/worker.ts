@@ -14,7 +14,6 @@ import { getDb } from '../db/index.js';
 import type { WebChannel } from '../channels/web.js';
 import { formatToolResultBlocks } from '../utils/index.js';
 import type { CitationSource, CitationSourceType, StoredCitationData } from '../citations/types.js';
-import { DEEP_RESEARCH_WORKFLOW_ID } from '../deep-research/constants.js';
 
 export class WorkerAgent extends AbstractAgent {
   private currentTaskId?: string;
