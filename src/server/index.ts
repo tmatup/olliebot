@@ -98,8 +98,8 @@ export class OllieBotServer {
     this.allowedOrigins = config.allowedOrigins ?? [
       'http://localhost:5173',   // Vite dev server
       'http://127.0.0.1:5173',   // Vite dev server (alternate)
-      'http://localhost:5173',   // Same-origin (production build)
-      'http://127.0.0.1:5173',   // Same-origin (alternate)
+      'http://localhost:3000',   // Same-origin (production build)
+      'http://127.0.0.1:3000',   // Same-origin (alternate)
     ];
 
     // Create Express app
