@@ -1189,6 +1189,19 @@ function App() {
   useEffect(() => { reasoningModeRef.current = reasoningMode; }, [reasoningMode]);
   useEffect(() => { messageTypeRef.current = messageType; }, [messageType]);
 
+  // Convert file to base64 (defined before handleSubmit which uses it)
+  const fileToBase64 = (file) => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const base64 = reader.result.split(',')[1];
+        resolve(base64);
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  };
+
   const handleSubmit = useCallback(async (inputText) => {
     const currentAttachments = attachmentsRef.current;
     const currentReasoningMode = reasoningModeRef.current;
@@ -1253,19 +1266,6 @@ function App() {
     setMessageType(null);
     setIsResponsePending(true);
   }, [sendMessage]);
-
-  // Convert file to base64
-  const fileToBase64 = (file) => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        const base64 = reader.result.split(',')[1];
-        resolve(base64);
-      };
-      reader.onerror = reject;
-      reader.readAsDataURL(file);
-    });
-  };
 
   // Handle file drop
   const handleDrop = (e) => {

@@ -29,6 +29,10 @@ export interface ServerConfig {
   // LLM configuration for model capabilities endpoint
   mainProvider?: string;
   mainModel?: string;
+  // Security: Network binding (default: localhost only)
+  bindAddress?: string;
+  // Security: Allowed CORS origins (default: localhost dev servers)
+  allowedOrigins?: string[];
 }
 
 export class OllieBotServer {
@@ -47,6 +51,8 @@ export class OllieBotServer {
   private ragProjectService?: RAGProjectService;
   private mainProvider?: string;
   private mainModel?: string;
+  private bindAddress: string;
+  private allowedOrigins: string[];
 
   constructor(config: ServerConfig) {
     this.port = config.port;
@@ -61,24 +67,62 @@ export class OllieBotServer {
     this.mainProvider = config.mainProvider;
     this.mainModel = config.mainModel;
 
+    // Security: Default to localhost-only binding (Layer 1: Network Binding)
+    this.bindAddress = config.bindAddress ?? '127.0.0.1';
+
+    // Security: Default allowed origins for local development (Layer 2: CORS)
+    this.allowedOrigins = config.allowedOrigins ?? [
+      'http://localhost:5173',   // Vite dev server
+      'http://127.0.0.1:5173',   // Vite dev server (alternate)
+      'http://localhost:3000',   // Same-origin (production build)
+      'http://127.0.0.1:3000',   // Same-origin (alternate)
+    ];
+
     // Create Express app
     this.app = express();
 
-    // Enable CORS for all origins
+    // CORS configuration - restrict to allowed origins only
     this.app.use(cors({
-      origin: '*',
-      methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+      origin: (origin, callback) => {
+        // Allow requests with no origin (same-origin, curl, etc.)
+        if (!origin) {
+          callback(null, true);
+          return;
+        }
+        if (this.allowedOrigins.includes(origin)) {
+          callback(null, true);
+        } else {
+          console.warn(`[CORS] Blocked request from origin: ${origin}`);
+          callback(new Error('Not allowed by CORS'));
+        }
+      },
+      methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
       allowedHeaders: ['Content-Type', 'Authorization'],
+      credentials: true,
     }));
     this.app.use(express.json());
 
     // Create HTTP server
     this.server = createServer(this.app);
 
-    // Create WebSocket server - attach to HTTP server
+    // Create WebSocket server with origin validation (Layer 2: CORS for WebSocket)
     this.wss = new WebSocketServer({
       server: this.server,
       path: '/', // Explicit root path
+      verifyClient: (info, callback) => {
+        const origin = info.origin || info.req.headers.origin;
+        // Allow connections with no origin (same-origin, CLI tools, etc.)
+        if (!origin) {
+          callback(true);
+          return;
+        }
+        if (this.allowedOrigins.includes(origin)) {
+          callback(true);
+        } else {
+          console.warn(`[WebSocket] Blocked connection from origin: ${origin}`);
+          callback(false, 403, 'Origin not allowed');
+        }
+      },
     });
 
     // Create and configure web channel
@@ -851,11 +895,16 @@ export class OllieBotServer {
       });
     }
 
-    // Start listening
+    // Start listening on configured bind address (default: localhost only)
     return new Promise((resolve) => {
-      this.server.listen(this.port, '0.0.0.0', () => {
-        console.log(`[Server] HTTP server listening on http://0.0.0.0:${this.port}`);
-        console.log(`[Server] WebSocket server ready on ws://0.0.0.0:${this.port}`);
+      this.server.listen(this.port, this.bindAddress, () => {
+        console.log(`[Server] HTTP server listening on http://${this.bindAddress}:${this.port}`);
+        console.log(`[Server] WebSocket server ready on ws://${this.bindAddress}:${this.port}`);
+        if (this.bindAddress === '127.0.0.1' || this.bindAddress === 'localhost') {
+          console.log('[Server] Security: Accepting connections from localhost only');
+        } else if (this.bindAddress === '0.0.0.0') {
+          console.warn('[Server] Security: Accepting connections from all interfaces - ensure proper authentication is configured');
+        }
         resolve();
       });
     });
