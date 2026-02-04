@@ -115,7 +115,7 @@ function parseMCPServers(configStr: string): MCPServerConfig[] {
 
 // Configuration
 const CONFIG = {
-  port: parseInt(process.env.PORT || '5173', 10),
+  port: parseInt(process.env.PORT || '3000', 10),
   dbPath: process.env.DB_PATH || join(process.cwd(), 'user', 'data', 'olliebot.db'),
   tasksDir: join(process.cwd(), 'user', 'tasks'),
   skillsDir: join(process.cwd(), 'user', 'skills'),
