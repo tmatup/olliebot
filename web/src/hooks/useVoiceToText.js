@@ -14,6 +14,7 @@ export function useVoiceToText({ onTranscript, onFinalTranscript, onError } = {}
   const wsRef = useRef(null);
   const audioContextRef = useRef(null);
   const processorRef = useRef(null);
+  const sourceRef = useRef(null);
   const streamRef = useRef(null);
   const accumulatedTranscriptRef = useRef('');
   const sessionReadyRef = useRef(false);
@@ -22,6 +23,7 @@ export function useVoiceToText({ onTranscript, onFinalTranscript, onError } = {}
   const reconnectTimeoutRef = useRef(null);
   const reconnectAttemptsRef = useRef(0);
   const reconnectDelayRef = useRef(2000); // Start with 2s delay
+  const workletLoadedRef = useRef(false);
 
   // Callback refs to avoid stale closures
   const onFinalTranscriptRef = useRef(onFinalTranscript);
@@ -41,8 +43,13 @@ export function useVoiceToText({ onTranscript, onFinalTranscript, onError } = {}
     pendingStopRef.current = false;
 
     if (processorRef.current) {
+      processorRef.current.port.onmessage = null;
       processorRef.current.disconnect();
       processorRef.current = null;
+    }
+    if (sourceRef.current) {
+      sourceRef.current.disconnect();
+      sourceRef.current = null;
     }
     if (audioContextRef.current) {
       audioContextRef.current.close();
@@ -228,24 +235,33 @@ export function useVoiceToText({ onTranscript, onFinalTranscript, onError } = {}
     };
   }, [getWsUrl, handleWsMessage]);
 
-  // Audio capture helper
-  const startAudioCapture = useCallback((audioContext, stream) => {
+  // Audio capture helper using AudioWorklet
+  const startAudioCapture = useCallback(async (audioContext, stream) => {
+    // Load AudioWorklet processor if not already loaded
+    if (!workletLoadedRef.current) {
+      try {
+        await audioContext.audioWorklet.addModule('/src/worklets/pcm-processor.js');
+        workletLoadedRef.current = true;
+        console.log('[Voice] AudioWorklet processor loaded');
+      } catch (error) {
+        console.error('[Voice] Failed to load AudioWorklet processor:', error);
+        onErrorRef.current?.('Failed to initialize audio processor');
+        return;
+      }
+    }
+
     const source = audioContext.createMediaStreamSource(stream);
-    const processor = audioContext.createScriptProcessor(4096, 1, 1);
+    const processor = new AudioWorkletNode(audioContext, 'pcm-processor');
+
+    sourceRef.current = source;
     processorRef.current = processor;
 
-    processor.onaudioprocess = (event) => {
-      const inputData = event.inputBuffer.getChannelData(0);
-
-      // Convert Float32 to Int16 PCM
-      const pcm16 = new Int16Array(inputData.length);
-      for (let i = 0; i < inputData.length; i++) {
-        const s = Math.max(-1, Math.min(1, inputData[i]));
-        pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
-      }
+    // Handle messages from the AudioWorklet processor
+    processor.port.onmessage = (event) => {
+      const pcm16Buffer = event.data; // ArrayBuffer from worklet
 
       // Convert to base64
-      const bytes = new Uint8Array(pcm16.buffer);
+      const bytes = new Uint8Array(pcm16Buffer);
       const base64 = btoa(
         Array.from(bytes, byte => String.fromCharCode(byte)).join('')
       );
@@ -264,6 +280,7 @@ export function useVoiceToText({ onTranscript, onFinalTranscript, onError } = {}
       }
     };
 
+    // Connect the audio graph
     source.connect(processor);
     processor.connect(audioContext.destination);
   }, []);
@@ -341,7 +358,7 @@ export function useVoiceToText({ onTranscript, onFinalTranscript, onError } = {}
       // Create audio context and start capturing
       const audioContext = new AudioContext({ sampleRate: 24000 });
       audioContextRef.current = audioContext;
-      startAudioCapture(audioContext, stream);
+      await startAudioCapture(audioContext, stream);
 
     } catch (error) {
       console.error('[Voice] Failed to start recording:', error);
