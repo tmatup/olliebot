@@ -26,31 +26,13 @@ export default defineConfig(({ mode }) => {
       target: `ws://localhost:${wsPort}`,
       ws: true,
       rewrite: (path) => path.replace(/^\/ws/, ''),
-      configure: (proxy) => {
-        // Suppress common WebSocket proxy errors (connection aborted/reset during refresh, tab close, HMR)
-        const ignoredErrors = ['ECONNABORTED', 'ECONNRESET', 'EPIPE', 'ERR_STREAM_WRITE_AFTER_END'];
-        proxy.on('error', (err) => {
-          if (!ignoredErrors.includes(err.code)) {
-            console.error('[vite] ws proxy error:', err.message);
-          }
-        });
-        proxy.on('proxyReqWs', (proxyReq, req, socket) => {
-          socket.on('error', (err) => {
-            if (!ignoredErrors.includes(err.code)) {
-              console.error('[vite] ws proxy socket error:', err.message);
-            }
-          });
-        });
-        proxy.on('open', (proxySocket) => {
-          proxySocket.on('error', (err) => {
-            if (!ignoredErrors.includes(err.code)) {
-              console.error('[vite] ws proxy outgoing socket error:', err.message);
-            }
-          });
-        });
-      },
-    },
-  } : {};
+    }
+  } : {
+    '/ws': {
+      target: 'ws://localhost:3000',
+      ws: true
+    }
+  };
 
   if (useWsProxy) {
     console.log('[vite] WebSocket proxy enabled (VITE_USE_WS_PROXY=true)');
@@ -72,8 +54,6 @@ export default defineConfig(({ mode }) => {
           target: 'http://localhost:3000',
           changeOrigin: true,
         },
-        // WebSocket proxy (only when VITE_USE_WS_PROXY=true for remote dev)
-        // By default, useWebSocket.js connects to port 5173
         ...wsProxyConfig,
       },
       // HMR configuration for Windows compatibility
