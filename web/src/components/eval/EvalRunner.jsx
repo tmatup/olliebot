@@ -30,6 +30,8 @@ export const EvalRunner = memo(function EvalRunner({ evaluation, suite, viewingR
 
   // Set up WebSocket listener for eval events
   useEffect(() => {
+    let mounted = true;
+
     // Use the same backend URL as the main WebSocket connection
     const wsUrl = import.meta.env.VITE_WS_URL || 'ws://localhost:3000';
 
@@ -38,10 +40,13 @@ export const EvalRunner = memo(function EvalRunner({ evaluation, suite, viewingR
     wsRef.current = ws;
 
     ws.onopen = () => {
+      if (!mounted) return;
       console.log('[EvalRunner] WebSocket connected');
     };
 
     ws.onmessage = (event) => {
+      if (!mounted) return;
+
       let data;
       try {
         data = JSON.parse(event.data);
@@ -89,9 +94,12 @@ export const EvalRunner = memo(function EvalRunner({ evaluation, suite, viewingR
     };
 
     return () => {
+      mounted = false;
+      // Only close if OPEN - don't close CONNECTING (causes error)
       if (ws.readyState === WebSocket.OPEN) {
         ws.close();
       }
+      wsRef.current = null;
     };
   }, []);
 

@@ -1,4 +1,5 @@
-import { useState, useRef, useEffect, useImperativeHandle, memo } from 'react';
+import { useState, useRef, useEffect, useImperativeHandle, memo, useCallback } from 'react';
+import { useVoiceToText } from '../hooks/useVoiceToText';
 
 /**
  * ChatInput component - manages local input state to prevent parent re-renders.
@@ -25,7 +26,121 @@ export const ChatInput = memo(function ChatInput({
   const [hashtagMenuOpen, setHashtagMenuOpen] = useState(false);
   const [hashtagMenuPosition, setHashtagMenuPosition] = useState({ top: 0, left: 0 });
   const [hashtagMenuIndex, setHashtagMenuIndex] = useState(0);
+  const [voiceAutoSubmit, setVoiceAutoSubmit] = useState(false);
+  const [voiceError, setVoiceError] = useState(null);
+  const [voiceInputWasEmpty, setVoiceInputWasEmpty] = useState(false);
+  const [voiceModeOn, setVoiceModeOn] = useState(false);
   const textareaRef = useRef(null);
+
+  // Voice-to-text hook
+  const {
+    isRecording,
+    isConnecting,
+    isFlushing,
+    isWsConnected,
+    startRecording,
+    stopRecording,
+    prepareRecording,
+    releaseRecording,
+  } = useVoiceToText({
+    onTranscript: useCallback((text) => {
+      // Update input with transcribed text
+      setInput(text);
+      if (onInputChange) {
+        onInputChange(text);
+      }
+    }, [onInputChange]),
+    onFinalTranscript: useCallback(() => {
+      // Mark for auto-submit when recording ends (push-to-talk)
+      setVoiceAutoSubmit(true);
+    }, []),
+    onError: useCallback((error) => {
+      setVoiceError(error);
+      // Clear error after 3 seconds
+      setTimeout(() => setVoiceError(null), 3000);
+    }, []),
+  });
+
+  // Track auto-submit timer to prevent cleanup from canceling it
+  const voiceSubmitTimerRef = useRef(null);
+
+  // Handle auto-submit after voice recording (push-to-talk: 500ms delay after release)
+  useEffect(() => {
+    if (voiceAutoSubmit && !isRecording && !isConnecting) {
+      setVoiceAutoSubmit(false);
+      setVoiceInputWasEmpty(false);
+
+      // Clear any existing timer
+      if (voiceSubmitTimerRef.current) {
+        clearTimeout(voiceSubmitTimerRef.current);
+      }
+
+      // Wait 500ms after release to allow final transcription to arrive, then submit
+      voiceSubmitTimerRef.current = setTimeout(() => {
+        voiceSubmitTimerRef.current = null;
+        // Get current input value at submit time
+        const currentInput = textareaRef.current?.value || '';
+        if (currentInput.trim()) {
+          onSubmit(currentInput);
+          setInput('');
+        }
+      }, 500);
+    }
+  }, [voiceAutoSubmit, isRecording, isConnecting, onSubmit]);
+
+  // Cleanup timer on unmount
+  useEffect(() => {
+    return () => {
+      if (voiceSubmitTimerRef.current) {
+        clearTimeout(voiceSubmitTimerRef.current);
+      }
+    };
+  }, []);
+
+  // Pre-acquire microphone and prepare upstream when voice mode is turned ON
+  useEffect(() => {
+    if (voiceModeOn && isWsConnected && !isRecording && !isConnecting) {
+      prepareRecording();
+    }
+  }, [voiceModeOn, isWsConnected, isRecording, isConnecting, prepareRecording]);
+
+  // Toggle voice mode ON/OFF
+  const handleVoiceToggle = useCallback(() => {
+    if (voiceModeOn) {
+      // Turn OFF - release mic and cleanup
+      releaseRecording();
+      setVoiceModeOn(false);
+    } else {
+      // Turn ON - will trigger prepareRecording via useEffect
+      setVoiceModeOn(true);
+      // Also start recording immediately on initial click (treat as hover-in)
+      // Use setTimeout to allow state update and prepareRecording to complete first
+      setTimeout(() => {
+        if (!isRecording && !isConnecting && !isFlushing && isConnected && isWsConnected && !isResponsePending && !input.trim()) {
+          setVoiceInputWasEmpty(true);
+          startRecording();
+        }
+      }, 100);
+    }
+  }, [voiceModeOn, releaseRecording, isRecording, isConnecting, isFlushing, isConnected, isWsConnected, isResponsePending, input, startRecording]);
+
+  // Voice button handlers (only active when voice mode is ON)
+  // Hover-to-talk: enter to start, leave to stop
+  const handleVoiceMouseEnter = useCallback(() => {
+    // Only hover-to-talk when voice mode is ON
+    if (!voiceModeOn) return;
+    // Voice only enabled when input is empty (isFlushing is OK - startRecording will reset it)
+    if (isRecording || isConnecting || !isConnected || !isWsConnected || isResponsePending || input.trim()) return;
+
+    setVoiceInputWasEmpty(true);
+    startRecording();
+  }, [voiceModeOn, isRecording, isConnecting, isConnected, isWsConnected, isResponsePending, input, startRecording]);
+
+  const handleVoiceMouseLeave = useCallback(() => {
+    if (isRecording || isConnecting) {
+      stopRecording();
+    }
+  }, [isRecording, isConnecting, stopRecording]);
 
   // Expose methods to parent via ref
   useImperativeHandle(ref, () => ({
@@ -265,14 +380,61 @@ export const ChatInput = memo(function ChatInput({
           onChange={handleLocalInputChange}
           onKeyDown={handleLocalKeyDown}
           onPaste={onPaste}
-          placeholder={isResponsePending ? "Waiting for response..." : "Type a message... (Shift + Enter for new line)"}
+          placeholder={
+            isRecording
+              ? "Listening..."
+              : isConnecting
+              ? "Connecting..."
+              : isResponsePending
+              ? "Waiting for response..."
+              : "Type a message... (Shift + Enter for new line)"
+          }
           disabled={!isConnected || isResponsePending}
+          readOnly={isRecording && voiceInputWasEmpty}
           rows={3}
         />
+        {voiceError && (
+          <div className="voice-error">{voiceError}</div>
+        )}
       </div>
-      <button type="submit" disabled={!isConnected || isResponsePending || (!input.trim() && attachments.length === 0)}>
-        {isResponsePending ? 'Waiting...' : 'Send'}
-      </button>
+      <div className="button-stack">
+        <button
+          type="button"
+          className={`voice-button ${voiceModeOn ? 'voice-on' : ''} ${isRecording ? 'recording' : ''} ${isConnecting ? 'connecting' : ''}`}
+          onClick={handleVoiceToggle}
+          onMouseEnter={handleVoiceMouseEnter}
+          onMouseLeave={handleVoiceMouseLeave}
+          disabled={!isConnected || !isWsConnected || isResponsePending || isFlushing}
+          title={voiceModeOn ? "Voice ON - hover to talk, click to turn OFF" : "Click to enable voice mode"}
+        >
+          {isConnecting ? (
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <circle cx="12" cy="12" r="10" strokeDasharray="32" strokeDashoffset="32">
+                <animate attributeName="stroke-dashoffset" dur="1s" repeatCount="indefinite" values="32;0" />
+              </circle>
+            </svg>
+          ) : isRecording ? (
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+              <circle cx="12" cy="12" r="6">
+                <animate attributeName="r" dur="0.8s" repeatCount="indefinite" values="6;8;6" />
+              </circle>
+            </svg>
+          ) : (
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+              <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+              <line x1="12" y1="19" x2="12" y2="23" />
+              <line x1="8" y1="23" x2="16" y2="23" />
+            </svg>
+          )}
+        </button>
+        <button type="submit" disabled={!isConnected || isResponsePending || (!input.trim() && attachments.length === 0)}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <line x1="22" y1="2" x2="11" y2="13" />
+            <polygon points="22 2 15 22 11 13 2 9 22 2" />
+          </svg>
+        </button>
+      </div>
     </form>
   );
 }, (prevProps, nextProps) => {

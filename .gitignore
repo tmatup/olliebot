@@ -15,6 +15,7 @@ web/dist/
 user/data/*
 user/evaluations/results/
 user/skills/
+user/memory.*
 
 # RAG project indices (but track sample documents)
 user/rag/

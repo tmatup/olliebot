@@ -16,26 +16,7 @@ const ReactCompilerConfig = {
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
-  const useWsProxy = env.VITE_USE_WS_PROXY === 'true';
-
-  // WebSocket proxy config (only used when VITE_USE_WS_PROXY=true)
-  // Useful for remote development where only one port is forwarded
-  const wsProxyConfig = useWsProxy ? {
-    '/ws': {
-      target: 'ws://localhost:3000',
-      ws: true,
-      rewrite: (path) => path.replace(/^\/ws/, ''),
-    }
-  } : {
-    '/ws': {
-      target: 'ws://localhost:3000',
-      ws: true
-    }
-  };
-
-  if (useWsProxy) {
-    console.log('[vite] WebSocket proxy enabled (VITE_USE_WS_PROXY=true)');
-  }
+  const backendPort = '3000';
 
   return {
     plugins: [
@@ -50,10 +31,19 @@ export default defineConfig(({ mode }) => {
       proxy: {
         // Proxy API requests to backend
         '/api': {
-          target: 'http://localhost:3000',
+          target: `http://localhost:${backendPort}`,
           changeOrigin: true,
         },
-        ...wsProxyConfig,
+        // Proxy main WebSocket to backend
+        '/ws': {
+          target: `ws://localhost:${backendPort}`,
+          ws: true,
+        },
+        // Proxy voice WebSocket to backend
+        '/voice': {
+          target: `ws://localhost:${backendPort}`,
+          ws: true,
+        },
       },
       // HMR configuration for Windows compatibility
       watch: {
