@@ -53,7 +53,13 @@ export interface Channel {
   sendError(error: string, details?: string): Promise<void>;
 
   // Streaming support (optional)
-  startStream?(streamId: string, agentInfo?: { agentId?: string; agentName?: string; agentEmoji?: string; conversationId?: string }): void;
+  startStream?(streamId: string, agentInfo?: {
+    agentId?: string;
+    agentName?: string;
+    agentEmoji?: string;
+    agentType?: string;
+    conversationId?: string;
+  }): void;
   sendStreamChunk?(streamId: string, chunk: string, conversationId?: string): void;
   endStream?(streamId: string, conversationId?: string): void;
 

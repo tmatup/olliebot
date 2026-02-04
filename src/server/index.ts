@@ -143,6 +143,7 @@ export class OllieBotServer {
           createdAt: m.createdAt,
           agentName: m.metadata?.agentName,
           agentEmoji: m.metadata?.agentEmoji,
+          agentType: m.metadata?.agentType,
           attachments: m.metadata?.attachments,
           messageType: m.metadata?.type,
           taskId: m.metadata?.taskId,
@@ -466,6 +467,7 @@ export class OllieBotServer {
           createdAt: m.createdAt,
           agentName: m.metadata?.agentName,
           agentEmoji: m.metadata?.agentEmoji,
+          agentType: m.metadata?.agentType,
           // Attachments
           attachments: m.metadata?.attachments,
           // Message type (task_run, tool_event, delegation, etc.)
@@ -482,7 +484,7 @@ export class OllieBotServer {
           toolError: m.metadata?.error,
           toolParameters: m.metadata?.parameters,
           toolResult: m.metadata?.result,
-          // Delegation metadata
+          // Delegation metadata (legacy - agentType above is preferred)
           delegationAgentId: m.metadata?.agentId,
           delegationAgentType: m.metadata?.agentType,
           delegationMission: m.metadata?.mission,
@@ -611,6 +613,7 @@ export class OllieBotServer {
           createdAt: m.createdAt,
           agentName: m.metadata?.agentName,
           agentEmoji: m.metadata?.agentEmoji,
+          agentType: m.metadata?.agentType,
           // Attachments
           attachments: m.metadata?.attachments,
           // Message type (task_run, tool_event, delegation, etc.)

@@ -18,6 +18,7 @@ import type { WebChannel } from '../channels/web.js';
 import type { ToolEvent } from '../tools/types.js';
 import { formatToolResultBlocks } from '../utils/index.js';
 import type { CitationSource, StoredCitationData } from '../citations/types.js';
+import { DEEP_RESEARCH_WORKFLOW_ID, AGENT_IDS } from '../deep-research/constants.js';
 
 export class SupervisorAgentImpl extends AbstractAgent implements ISupervisorAgent {
   private subAgents: Map<string, WorkerAgent> = new Map();
@@ -25,6 +26,10 @@ export class SupervisorAgentImpl extends AbstractAgent implements ISupervisorAge
   private messageChannelMap: Map<string, string> = new Map(); // messageId -> channelId
   private currentConversationId: string | null = null;
   private conversationMessageCount: Map<string, number> = new Map(); // Track message counts for auto-naming
+  // Track messages currently being processed to prevent re-processing due to timeouts/retries
+  private processingMessages: Set<string> = new Set();
+  // Track which messages have had delegation performed to prevent re-delegation
+  private delegatedMessages: Set<string> = new Set();
 
   // Override to make registry non-nullable in supervisor
   protected declare agentRegistry: AgentRegistry;
@@ -79,8 +84,17 @@ export class SupervisorAgentImpl extends AbstractAgent implements ISupervisorAge
   }
 
   async handleMessage(message: Message): Promise<void> {
+    // Prevent re-processing of the same message (can happen due to timeouts/retries)
+    if (this.processingMessages.has(message.id)) {
+      console.log(`[${this.identity.name}] Message ${message.id} already being processed, skipping`);
+      return;
+    }
+
     this._state.lastActivity = new Date();
     this._state.status = 'working';
+
+    // Mark message as being processed
+    this.processingMessages.add(message.id);
 
     // If message includes a conversationId, set it on the supervisor
     const msgConversationId = message.metadata?.conversationId as string | undefined;
@@ -122,6 +136,12 @@ export class SupervisorAgentImpl extends AbstractAgent implements ISupervisorAge
     } catch (error) {
       console.error(`[${this.identity.name}] Error:`, error);
       await this.sendError(channel, 'Failed to process message', String(error));
+    } finally {
+      // Clean up processing state after a delay (allow for retries to be detected)
+      setTimeout(() => {
+        this.processingMessages.delete(message.id);
+        this.delegatedMessages.delete(message.id);
+      }, 300000); // Keep in set for 5 minutes to prevent retries during long tasks
     }
 
     this._state.status = 'idle';
@@ -165,6 +185,10 @@ export class SupervisorAgentImpl extends AbstractAgent implements ISupervisorAge
             timestamp: event.timestamp.toISOString(),
             startTime: 'startTime' in event ? event.startTime.toISOString() : undefined,
             endTime: 'endTime' in event ? event.endTime.toISOString() : undefined,
+            // Agent tracking
+            agentId: this.identity.id,
+            agentName: this.identity.name,
+            agentEmoji: this.identity.emoji,
           });
         }
 
@@ -185,20 +209,28 @@ export class SupervisorAgentImpl extends AbstractAgent implements ISupervisorAge
       const systemPrompt = this.buildSystemPrompt();
       const tools = this.getToolsForLLM();
 
-      // Build initial messages, including image attachments
+      // Build initial messages, including image attachments and messageType
       let llmMessages: LLMMessage[] = [
         { role: 'system', content: systemPrompt },
         ...this.conversationHistory.slice(-10).map((m) => {
           // Check if message has image attachments
           const imageAttachments = m.attachments?.filter(a => a.type.startsWith('image/')) || [];
 
+          // Build the text content, prepending messageType if present
+          let textContent = m.content;
+          if (m.role === 'user' && m.metadata?.messageType) {
+            // Prepend messageType to help supervisor route correctly
+            const messageType = m.metadata.messageType as string;
+            textContent = `[messageType: ${messageType}]\n\n${m.content}`;
+          }
+
           if (imageAttachments.length > 0 && m.role === 'user') {
             // Build multimodal content with text and images
             const content: Array<{ type: 'text' | 'image'; text?: string; source?: { type: 'base64'; media_type: string; data: string } }> = [];
 
             // Add text content first (content should always be string from Message type)
-            if (m.content && typeof m.content === 'string') {
-              content.push({ type: 'text', text: m.content });
+            if (textContent && typeof textContent === 'string') {
+              content.push({ type: 'text', text: textContent });
             }
 
             // Add image attachments
@@ -217,7 +249,7 @@ export class SupervisorAgentImpl extends AbstractAgent implements ISupervisorAge
           }
 
           // Regular text-only message
-          return { role: m.role, content: m.content };
+          return { role: m.role, content: textContent };
         }),
       ];
 
@@ -265,6 +297,20 @@ export class SupervisorAgentImpl extends AbstractAgent implements ISupervisorAge
             // Check if delegate tool was called
             const delegateResult = results.find(r => r.toolName === 'native__delegate' && r.success);
             if (delegateResult) {
+              // Check if we've already delegated for this message (prevent re-delegation on retries)
+              if (this.delegatedMessages.has(message.id)) {
+                console.log(`[${this.identity.name}] Already delegated for message ${message.id}, skipping`);
+                // End stream and return without re-delegating
+                this.endStreamWithCitations(channel, streamId, this.currentConversationId || undefined, undefined);
+                if (unsubscribeTool) {
+                  unsubscribeTool();
+                }
+                return;
+              }
+
+              // Mark this message as having delegation performed
+              this.delegatedMessages.add(message.id);
+
               // Extract delegation params from tool output
               const delegationParams = delegateResult.output as {
                 type: string;
@@ -282,6 +328,8 @@ export class SupervisorAgentImpl extends AbstractAgent implements ISupervisorAge
               if (fullResponse.trim()) {
                 this.saveAssistantMessage(message.channel, fullResponse.trim(), reasoningMode);
               }
+
+              console.log(`[${this.identity.name}] Delegating to ${delegationParams.type} for message ${message.id}`);
 
               // Perform the delegation
               await this.handleDelegationFromTool(delegationParams, message, channel);
@@ -612,8 +660,13 @@ export class SupervisorAgentImpl extends AbstractAgent implements ISupervisorAge
       ...partialConfig,
     };
 
-    const agent = new WorkerAgent(config, this.llmService);
+    const agent = new WorkerAgent(config, this.llmService, type);
     agent.setRegistry(this.agentRegistry);
+
+    // Set workflow context for deep research agents
+    if (type === AGENT_IDS.LEAD) {
+      agent.setWorkflowId(DEEP_RESEARCH_WORKFLOW_ID);
+    }
 
     // Pass the tool runner to worker agents so they can use MCP, skills, and native tools
     if (this.toolRunner) {
@@ -966,6 +1019,9 @@ export class SupervisorAgentImpl extends AbstractAgent implements ISupervisorAge
           error: event.error as string | undefined,
           parameters: event.parameters as Record<string, unknown> | undefined,
           result: resultStr,
+          // Agent tracking
+          agentId: this.identity.id,
+          agentName: this.identity.name,
         },
         createdAt: new Date().toISOString(),
       });

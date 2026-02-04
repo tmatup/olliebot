@@ -465,6 +465,8 @@ export interface SpecialistTemplate {
   type: string;
   identity: Omit<AgentIdentity, 'id'>;
   canAccessTools: string[];
+  delegation?: import('./types.js').AgentDelegationConfig;
+  collapseResponseByDefault?: boolean;
 }
 
 // Forward declaration - will be implemented in registry.ts
@@ -480,4 +482,7 @@ export interface AgentRegistry {
   findSpecialistTypeByName(name: string): string | undefined;
   loadAgentPrompt(type: string): string;
   getToolAccessForSpecialist(type: string): string[];
+  // Delegation methods
+  getDelegationConfigForSpecialist(type: string): import('./types.js').AgentDelegationConfig;
+  canDelegate(sourceAgentType: string, targetAgentType: string, currentWorkflowId: string | null): boolean;
 }

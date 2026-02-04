@@ -153,6 +153,11 @@ const CONFIG = {
   webSearchProvider: (process.env.WEB_SEARCH_PROVIDER || 'tavily') as WebSearchProvider,
   webSearchApiKey: process.env.WEB_SEARCH_API_KEY || '',
   googleCustomSearchEngineId: process.env.GOOGLE_CUSTOM_SEARCH_ENGINE_ID || '',
+
+  // Deep Research configuration
+  // Falls back to main provider/model if not specified
+  deepResearchProvider: process.env.DEEP_RESEARCH_PROVIDER || process.env.MAIN_PROVIDER || 'anthropic',
+  deepResearchModel: process.env.DEEP_RESEARCH_MODEL || process.env.MAIN_MODEL || 'claude-sonnet-4-20250514',
 };
 
 function createLLMProvider(provider: string, model: string): LLMProvider {

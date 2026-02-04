@@ -7,7 +7,9 @@ import type {
   BaseAgent,
   AgentCommunication,
   AgentIdentity,
+  AgentDelegationConfig,
 } from './types.js';
+import { DEFAULT_DELEGATION_CONFIG } from './types.js';
 
 // Directory for sub-agent prompts (part of app code)
 const __filename = fileURLToPath(import.meta.url);
@@ -22,6 +24,10 @@ export interface SpecialistTemplate {
   identity: Omit<AgentIdentity, 'id'>;
   /** Tool access patterns (supports wildcards and !exclusions) */
   canAccessTools: string[];
+  /** Delegation configuration for this agent type */
+  delegation?: AgentDelegationConfig;
+  /** Whether the agent's response should be collapsed by default in the UI */
+  collapseResponseByDefault?: boolean;
 }
 
 /** Default tool exclusions for all specialists (supervisor-only tools) */
@@ -41,9 +47,9 @@ const SPECIALIST_TEMPLATES: SpecialistTemplate[] = [
     },
     // Researcher: web search, scraping, wikipedia, http
     canAccessTools: [
-      'native__web-search',
-      'native__web-scrape',
-      'native__wikipedia-search',
+      'native__web_search',
+      'native__web_scrape',
+      'native__wikipedia_search',
       'native__analyze-image',
       '*__*', // MCP tools
     ],
@@ -58,8 +64,8 @@ const SPECIALIST_TEMPLATES: SpecialistTemplate[] = [
     },
     // Coder: web for docs
     canAccessTools: [
-      'native__web-search',
-      'native__web-scrape',
+      'native__web_search',
+      'native__web_scrape',
       'native__analyze-image',
       '*__*', // MCP tools (filesystem, etc.)
     ],
@@ -74,9 +80,9 @@ const SPECIALIST_TEMPLATES: SpecialistTemplate[] = [
     },
     // Writer: web research, image creation for illustrations
     canAccessTools: [
-      'native__web-search',
-      'native__web-scrape',
-      'native__wikipedia-search',
+      'native__web_search',
+      'native__web_scrape',
+      'native__wikipedia_search',
       'native__create-image',
       '*__*', // MCP tools
     ],
@@ -91,11 +97,79 @@ const SPECIALIST_TEMPLATES: SpecialistTemplate[] = [
     },
     // Planner: research tools for gathering info to plan
     canAccessTools: [
-      'native__web-search',
-      'native__web-scrape',
-      'native__wikipedia-search',
+      'native__web_search',
+      'native__web_scrape',
+      'native__wikipedia_search',
       '*__*', // MCP tools
     ],
+  },
+  // ============================================================================
+  // DEEP RESEARCH AGENTS
+  // ============================================================================
+  {
+    type: 'deep-research-lead',
+    identity: {
+      name: 'Deep Research Lead',
+      emoji: '🔬',
+      role: 'specialist',
+      description: 'Orchestrates comprehensive multi-source research tasks',
+    },
+    canAccessTools: [
+      'native__web_search',
+      'native__web_scrape',
+      'native__wikipedia_search',
+      'native__delegate', // Can delegate to research-worker
+      '*__*', // MCP tools
+      // Note: delegate is explicitly included above (overrides SUPERVISOR_ONLY_TOOLS exclusion)
+    ],
+    delegation: {
+      canDelegate: true,
+      allowedDelegates: ['research-worker'], // research-reviewer removed for now - needs workflow redesign
+      restrictedToWorkflow: null,
+      supervisorCanInvoke: true,
+    },
+  },
+  {
+    type: 'research-worker',
+    identity: {
+      name: 'Research Worker',
+      emoji: '📚',
+      role: 'specialist',
+      description: 'Deep exploration of specific research subtopics',
+    },
+    canAccessTools: [
+      'native__web_search',
+      'native__web_scrape',
+      'native__wikipedia_search',
+      '*__*', // MCP tools
+    ],
+    delegation: {
+      canDelegate: false,
+      allowedDelegates: [],
+      restrictedToWorkflow: 'deep-research',
+      supervisorCanInvoke: false, // Only invocable by deep-research-lead
+    },
+    collapseResponseByDefault: true, // Collapse worker responses in UI
+  },
+  {
+    type: 'research-reviewer',
+    identity: {
+      name: 'Research Reviewer',
+      emoji: '📝',
+      role: 'specialist',
+      description: 'Critical review of research reports for quality assurance',
+    },
+    canAccessTools: [
+      // Reviewer doesn't need search - just reviews drafts
+      'native__web_scrape', // Can verify sources
+    ],
+    delegation: {
+      canDelegate: false,
+      allowedDelegates: [],
+      restrictedToWorkflow: 'deep-research',
+      supervisorCanInvoke: false, // Only invocable by deep-research-lead
+    },
+    collapseResponseByDefault: true, // Collapse reviewer responses in UI
   },
 ];
 
@@ -198,15 +272,90 @@ export class AgentRegistry {
   /**
    * Get tool access patterns for a specialist type
    * Combines the specialist's allowed tools with supervisor-only exclusions
+   * (but doesn't exclude tools that are explicitly included in the template)
    */
   getToolAccessForSpecialist(type: string): string[] {
     const template = this.specialists.get(type);
     if (template) {
-      // Combine specialist's tools with supervisor-only exclusions
-      return [...template.canAccessTools, ...SUPERVISOR_ONLY_TOOLS];
+      // Get explicit tool includes from template (without ! prefix)
+      const explicitIncludes = new Set(
+        template.canAccessTools
+          .filter(t => !t.startsWith('!'))
+          .map(t => t.replace('native__', ''))
+      );
+
+      // Filter out exclusions for tools that are explicitly included
+      const filteredExclusions = SUPERVISOR_ONLY_TOOLS.filter(exclusion => {
+        if (exclusion.startsWith('!')) {
+          const toolName = exclusion.slice(1).replace('native__', '');
+          // Don't add exclusion if the tool is explicitly included
+          return !explicitIncludes.has(toolName);
+        }
+        return true;
+      });
+
+      // Combine specialist's tools with filtered exclusions
+      return [...template.canAccessTools, ...filteredExclusions];
     }
     // Default for custom/unknown types: all tools except supervisor-only
     return ['*', ...SUPERVISOR_ONLY_TOOLS];
+  }
+
+  /**
+   * Get delegation configuration for a specialist type
+   */
+  getDelegationConfigForSpecialist(type: string): AgentDelegationConfig {
+    const template = this.specialists.get(type);
+    return template?.delegation || DEFAULT_DELEGATION_CONFIG;
+  }
+
+  /**
+   * Check if an agent can delegate to another agent
+   * @throws Error if delegation is not allowed
+   */
+  canDelegate(
+    sourceAgentType: string,
+    targetAgentType: string,
+    currentWorkflowId: string | null
+  ): boolean {
+    const sourceConfig = this.getDelegationConfigForSpecialist(sourceAgentType);
+    const targetConfig = this.getDelegationConfigForSpecialist(targetAgentType);
+
+    // Check if source can delegate at all
+    if (!sourceConfig.canDelegate) {
+      throw new Error(`Agent type '${sourceAgentType}' cannot delegate to other agents`);
+    }
+
+    // Check if source is allowed to delegate to target
+    if (
+      sourceConfig.allowedDelegates.length > 0 &&
+      !sourceConfig.allowedDelegates.includes(targetAgentType)
+    ) {
+      throw new Error(
+        `Agent type '${sourceAgentType}' is not allowed to delegate to '${targetAgentType}'`
+      );
+    }
+
+    // Check if target has workflow restrictions
+    if (targetConfig.restrictedToWorkflow) {
+      if (currentWorkflowId !== targetConfig.restrictedToWorkflow) {
+        throw new Error(
+          `Agent type '${targetAgentType}' can only be invoked within ` +
+          `'${targetConfig.restrictedToWorkflow}' workflow, ` +
+          `current workflow: '${currentWorkflowId || 'none'}'`
+        );
+      }
+    }
+
+    return true;
+  }
+
+  /**
+   * Check if supervisor can invoke an agent type directly
+   */
+  canSupervisorInvoke(agentType: string): boolean {
+    const config = this.getDelegationConfigForSpecialist(agentType);
+    return config.supervisorCanInvoke;
   }
 
   // ============================================================================

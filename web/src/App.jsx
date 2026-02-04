@@ -231,6 +231,38 @@ function App() {
   // Expanded tool events
   const [expandedTools, setExpandedTools] = useState(new Set());
 
+  // Agent types that should have their responses collapsed by default
+  const COLLAPSE_BY_DEFAULT_AGENT_TYPES = useMemo(() => new Set([
+    'research-worker',
+    'research-reviewer',
+  ]), []);
+
+  // Map display names to agent type IDs (for legacy messages without agentType)
+  const AGENT_NAME_TO_TYPE = useMemo(() => ({
+    'Research Worker': 'research-worker',
+    'Research Reviewer': 'research-reviewer',
+    'Deep Research Lead': 'deep-research-lead',
+  }), []);
+
+  // Helper function to check if an agent type should collapse by default
+  const shouldCollapseByDefault = useCallback((agentType, agentName) => {
+    // First try the explicit agentType
+    if (agentType && COLLAPSE_BY_DEFAULT_AGENT_TYPES.has(agentType)) {
+      return true;
+    }
+    // Fallback: map agentName to agentType for legacy messages
+    if (agentName) {
+      const mappedType = AGENT_NAME_TO_TYPE[agentName];
+      if (mappedType && COLLAPSE_BY_DEFAULT_AGENT_TYPES.has(mappedType)) {
+        return true;
+      }
+    }
+    return false;
+  }, [COLLAPSE_BY_DEFAULT_AGENT_TYPES, AGENT_NAME_TO_TYPE]);
+
+  // Expanded agent messages (for agents that collapse by default, like research-worker)
+  const [expandedAgentMessages, setExpandedAgentMessages] = useState(new Set());
+
   // Eval mode state
   const [selectedEvaluation, setSelectedEvaluation] = useState(null);
   const [selectedSuite, setSelectedSuite] = useState(null);
@@ -241,6 +273,7 @@ function App() {
 
   // Reasoning mode state
   const [reasoningMode, setReasoningMode] = useState(null); // null | 'high' | 'xhigh'
+  const [messageType, setMessageType] = useState(null); // null | 'deep_research'
   const [hashtagMenuOpen, setHashtagMenuOpen] = useState(false);
   const [hashtagMenuPosition, setHashtagMenuPosition] = useState({ top: 0, left: 0 });
   const [modelCapabilities, setModelCapabilities] = useState({ reasoningEfforts: [] });
@@ -298,7 +331,7 @@ function App() {
 
       // Start a new streaming message
       setMessages((prev) => {
-        // Find the most recent user message to get reasoning mode
+        // Find the most recent user message to get reasoning mode and message type
         const lastUserMsg = [...prev].reverse().find(m => m.role === 'user');
         return [
           ...prev,
@@ -310,7 +343,9 @@ function App() {
             isStreaming: true,
             agentName: data.agentName,
             agentEmoji: data.agentEmoji,
+            agentType: data.agentType,
             reasoningMode: lastUserMsg?.reasoningMode || null,
+            messageType: lastUserMsg?.messageType || null,
           },
         ];
       });
@@ -648,10 +683,13 @@ function App() {
         parameters: msg.toolParameters,
         result: msg.toolResult,
         // Delegation metadata
-        agentType: msg.delegationAgentType,
+        // agentType fallback: use agentName if it looks like an agent type ID (contains hyphen)
+        agentType: msg.agentType || msg.delegationAgentType || (msg.agentName?.includes('-') ? msg.agentName : undefined),
         mission: msg.delegationMission,
         // Reasoning mode (from DB, vendor-neutral)
         reasoningMode: msg.reasoningMode,
+        // Message type (e.g., deep_research)
+        messageType: msg.messageType,
         // Citations
         citations: msg.citations,
       };
@@ -1122,28 +1160,36 @@ function App() {
       })
     );
 
+    // Generate a unique message ID for deduplication (prevents React Strict Mode double-sends)
+    const messageId = `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+
     // Add user message to UI immediately
     const userMessage = {
-      id: Date.now(),
+      id: messageId,
       role: 'user',
       content: input,
       attachments: attachments.map(f => ({ name: f.name, type: f.type, size: f.size })),
       timestamp: new Date().toISOString(),
       reasoningMode: reasoningMode, // Track reasoning mode used for this message
+      messageType: messageType, // Track message type (e.g., deep_research)
     };
     setMessages((prev) => [...prev, userMessage]);
 
-    // Send via WebSocket with conversation ID, attachments, and reasoning effort
+    // Send via WebSocket with conversation ID, attachments, reasoning effort, and message type
+    // Include messageId for server-side deduplication
     sendMessage({
       type: 'message',
+      messageId: messageId, // For deduplication on server
       content: input,
       attachments: processedAttachments,
       conversationId: currentConversationId,
       reasoningEffort: reasoningMode,
+      messageType: messageType, // e.g., 'deep_research'
     });
     setInput('');
     setAttachments([]);
     setReasoningMode(null);
+    setMessageType(null);
     setIsResponsePending(true);
   };
 
@@ -1205,13 +1251,14 @@ function App() {
     setAttachments((prev) => prev.filter((_, i) => i !== index));
   }, []);
 
-  // Handle input change - detect # trigger for reasoning mode menu
+  // Handle input change - detect # trigger for hashtag menu (reasoning modes + deep research)
   const handleInputChange = useCallback((e) => {
     const newValue = e.target.value;
     const cursorPos = e.target.selectionStart;
 
     // Check if user just typed # at start or after a space
-    if (newValue.length > input.length && modelCapabilities.reasoningEfforts?.length > 0) {
+    // Show menu for: Deep Research (always available) or reasoning modes (if supported)
+    if (newValue.length > input.length) {
       const charJustTyped = newValue[cursorPos - 1];
       const charBefore = cursorPos > 1 ? newValue[cursorPos - 2] : '';
 
@@ -1231,7 +1278,7 @@ function App() {
     }
 
     setInput(newValue);
-  }, [input, modelCapabilities.reasoningEfforts]);
+  }, [input]);
 
   // Handle reasoning mode selection
   const handleSelectReasoningMode = useCallback((mode) => {
@@ -1252,14 +1299,57 @@ function App() {
     textareaRef.current?.focus();
   }, []);
 
+  // Handle message type selection (e.g., deep research)
+  const handleSelectMessageType = useCallback((type) => {
+    setMessageType(type);
+    setHashtagMenuOpen(false);
+    // Remove the # from input
+    const cursorPos = textareaRef.current?.selectionStart || 0;
+    setInput(prev => {
+      // Find the # before cursor and remove it
+      const before = prev.slice(0, cursorPos);
+      const after = prev.slice(cursorPos);
+      const hashIndex = before.lastIndexOf('#');
+      if (hashIndex >= 0) {
+        return before.slice(0, hashIndex) + after;
+      }
+      return prev;
+    });
+    textareaRef.current?.focus();
+  }, []);
+
+  // Build available hashtag menu options
+  const hashtagMenuOptions = useMemo(() => {
+    const options = [];
+    // Deep Research is always available
+    options.push({ id: 'deep_research', type: 'messageType', icon: '🔬', label: 'Deep Research', desc: 'Comprehensive multi-source research' });
+    // Add reasoning modes if available
+    if (modelCapabilities.reasoningEfforts?.includes('high')) {
+      options.push({ id: 'high', type: 'reasoningMode', icon: '🧠', label: 'Think', desc: 'High effort reasoning' });
+    }
+    if (modelCapabilities.reasoningEfforts?.includes('xhigh')) {
+      options.push({ id: 'xhigh', type: 'reasoningMode', icon: '🧠', label: 'Think+', desc: 'Maximum effort reasoning' });
+    }
+    return options;
+  }, [modelCapabilities.reasoningEfforts]);
+
+  // Handle hashtag menu item selection
+  const handleHashtagMenuSelect = useCallback((option) => {
+    if (option.type === 'messageType') {
+      handleSelectMessageType(option.id);
+    } else if (option.type === 'reasoningMode') {
+      handleSelectReasoningMode(option.id);
+    }
+  }, [handleSelectMessageType, handleSelectReasoningMode]);
+
   // Handle textarea key down (submit on Enter, newline on Shift+Enter)
   const handleKeyDown = useCallback((e) => {
     // Handle hashtag menu navigation
     if (hashtagMenuOpen) {
-      const availableModes = modelCapabilities.reasoningEfforts || [];
+      const optionCount = hashtagMenuOptions.length;
       if (e.key === 'ArrowDown') {
         e.preventDefault();
-        setHashtagMenuIndex(prev => Math.min(prev + 1, availableModes.length - 1));
+        setHashtagMenuIndex(prev => Math.min(prev + 1, optionCount - 1));
         return;
       } else if (e.key === 'ArrowUp') {
         e.preventDefault();
@@ -1267,8 +1357,8 @@ function App() {
         return;
       } else if (e.key === 'Enter') {
         e.preventDefault();
-        if (availableModes[hashtagMenuIndex]) {
-          handleSelectReasoningMode(availableModes[hashtagMenuIndex]);
+        if (hashtagMenuOptions[hashtagMenuIndex]) {
+          handleHashtagMenuSelect(hashtagMenuOptions[hashtagMenuIndex]);
         }
         return;
       } else if (e.key === 'Escape') {
@@ -1284,7 +1374,7 @@ function App() {
         handleSubmit(e);
       }
     }
-  }, [input, attachments, hashtagMenuOpen, hashtagMenuIndex, modelCapabilities.reasoningEfforts, handleSelectReasoningMode]);
+  }, [input, attachments, hashtagMenuOpen, hashtagMenuIndex, hashtagMenuOptions, handleHashtagMenuSelect]);
 
   const handleAction = (action, data) => {
     sendMessage({ type: 'action', action, data, conversationId: currentConversationId });
@@ -1452,6 +1542,19 @@ function App() {
         newSet.delete(toolId);
       } else {
         newSet.add(toolId);
+      }
+      return newSet;
+    });
+  }, []);
+
+  // Toggle agent message expansion (for messages that collapse by default)
+  const toggleAgentMessageExpand = useCallback((msgId) => {
+    setExpandedAgentMessages((prev) => {
+      const newSet = new Set(prev);
+      if (newSet.has(msgId)) {
+        newSet.delete(msgId);
+      } else {
+        newSet.add(msgId);
       }
       return newSet;
     });
@@ -2017,7 +2120,7 @@ function App() {
               <p>Your personal support agent is ready to help.</p>
             </div>
           )}
-          {messages.map((msg) => (
+          {messages.map((msg) =>
             msg.role === 'tool' ? (
               // Expandable tool invocation display
               <div key={msg.id} className={`tool-event-wrapper ${expandedTools.has(msg.id) ? 'expanded' : ''}`}>
@@ -2087,6 +2190,36 @@ function App() {
                   <span className="task-run-description">{msg.taskDescription}</span>
                 )}
               </div>
+            ) : shouldCollapseByDefault(msg.agentType, msg.agentName) ? (
+              // Collapsible agent message (e.g., research-worker)
+              <div key={msg.id} className={`collapsible-agent-message ${expandedAgentMessages.has(msg.id) ? 'expanded' : 'collapsed'}`}>
+                <div
+                  className="collapsible-agent-header"
+                  onClick={() => toggleAgentMessageExpand(msg.id)}
+                >
+                  <span className="collapsible-agent-icon">{msg.agentEmoji || '📚'}</span>
+                  <span className="collapsible-agent-name">{msg.agentName || 'Agent'}</span>
+                  <span className="collapsible-agent-preview">
+                    {msg.content ? (msg.content.substring(0, 80) + (msg.content.length > 80 ? '...' : '')) : 'Processing...'}
+                  </span>
+                  <span className="collapsible-agent-expand-icon">
+                    {expandedAgentMessages.has(msg.id) ? '▼' : '▶'}
+                  </span>
+                </div>
+                {expandedAgentMessages.has(msg.id) && (
+                  <div className={`message ${msg.role}${msg.isError ? ' error' : ''}${msg.isStreaming ? ' streaming' : ''}`}>
+                    <div className="message-avatar">
+                      {msg.isError ? '⚠️' : (msg.agentEmoji || '🐙')}
+                    </div>
+                    <div className="message-content">
+                      <MessageContent content={msg.content} html={msg.html} isStreaming={msg.isStreaming} />
+                      {msg.role === 'assistant' && msg.citations && !msg.isStreaming && (
+                        <SourcePanel citations={msg.citations} />
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
             ) : (
             <div key={msg.id} className={`message ${msg.role}${msg.isError ? ' error' : ''}${msg.isStreaming ? ' streaming' : ''}`}>
               <div className="message-avatar">
@@ -2115,6 +2248,14 @@ function App() {
                         </span>
                       </div>
                     ))}
+                  </div>
+                )}
+                {msg.messageType && (
+                  <div className="message-reasoning-chip message-type-chip">
+                    <span className="reasoning-chip-icon">🔬</span>
+                    <span className="reasoning-chip-label">
+                      {msg.messageType === 'deep_research' ? 'Deep Research' : msg.messageType}
+                    </span>
                   </div>
                 )}
                 {msg.reasoningMode && (
@@ -2150,9 +2291,8 @@ function App() {
                 )}
               </div>
             </div>
-            )
           ))}
-            <div ref={messagesEndRef} />
+          <div ref={messagesEndRef} />
           </div>
 
           {/* Scroll to bottom button */}
@@ -2265,7 +2405,7 @@ function App() {
               onDragLeave={handleDragLeave}
             >
               {/* Chips bar - show if attachments OR reasoning mode */}
-              {(attachments.length > 0 || reasoningMode) && (
+              {(attachments.length > 0 || reasoningMode || messageType) && (
                 <div className="attachments-bar">
                   {/* Attachment chips first */}
                   {attachments.map((file, index) => (
@@ -2287,7 +2427,25 @@ function App() {
                     </div>
                   ))}
 
-                  {/* Reasoning mode chip last, accent color */}
+                  {/* Message type chip (e.g., Deep Research) */}
+                  {messageType && (
+                    <div className="hashtag-chip hashtag-chip-research">
+                      <span className="hashtag-chip-icon">🔬</span>
+                      <span className="hashtag-chip-label">
+                        {messageType === 'deep_research' ? 'Deep Research' : messageType}
+                      </span>
+                      <button
+                        type="button"
+                        className="hashtag-chip-remove"
+                        onClick={() => setMessageType(null)}
+                        title="Remove message type"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Reasoning mode chip, accent color */}
                   {reasoningMode && (
                     <div className="hashtag-chip">
                       <span className="hashtag-chip-icon">🧠</span>
@@ -2308,33 +2466,23 @@ function App() {
               )}
 
               {/* Hashtag context menu */}
-              {hashtagMenuOpen && (
+              {hashtagMenuOpen && hashtagMenuOptions.length > 0 && (
                 <div
                   className="hashtag-menu"
                   style={{ top: hashtagMenuPosition.top, left: hashtagMenuPosition.left }}
                 >
-                  {modelCapabilities.reasoningEfforts?.includes('high') && (
+                  {hashtagMenuOptions.map((option, index) => (
                     <button
+                      key={option.id}
                       type="button"
-                      className={`hashtag-menu-item ${hashtagMenuIndex === 0 ? 'selected' : ''}`}
-                      onClick={() => handleSelectReasoningMode('high')}
-                      onMouseEnter={() => setHashtagMenuIndex(0)}
+                      className={`hashtag-menu-item ${hashtagMenuIndex === index ? 'selected' : ''}`}
+                      onClick={() => handleHashtagMenuSelect(option)}
+                      onMouseEnter={() => setHashtagMenuIndex(index)}
                     >
-                      <span>🧠 Think</span>
-                      <span className="hashtag-menu-item-desc">High effort reasoning</span>
+                      <span>{option.icon} {option.label}</span>
+                      <span className="hashtag-menu-item-desc">{option.desc}</span>
                     </button>
-                  )}
-                  {modelCapabilities.reasoningEfforts?.includes('xhigh') && (
-                    <button
-                      type="button"
-                      className={`hashtag-menu-item ${hashtagMenuIndex === (modelCapabilities.reasoningEfforts?.includes('high') ? 1 : 0) ? 'selected' : ''}`}
-                      onClick={() => handleSelectReasoningMode('xhigh')}
-                      onMouseEnter={() => setHashtagMenuIndex(modelCapabilities.reasoningEfforts?.includes('high') ? 1 : 0)}
-                    >
-                      <span>🧠 Think+</span>
-                      <span className="hashtag-menu-item-desc">Maximum effort reasoning</span>
-                    </button>
-                  )}
+                  ))}
                 </div>
               )}
 
