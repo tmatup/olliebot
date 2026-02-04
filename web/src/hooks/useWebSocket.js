@@ -1,27 +1,8 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 
-// Determine WebSocket URL:
-// - If VITE_WS_URL is set, use it (for custom deployments)
-// - If VITE_USE_WS_PROXY=true, use Vite's proxy (for remote dev / single-port scenarios)
-// - In development (port 5173), connect directly to backend (port 3000) to avoid Vite proxy issues
-// - Otherwise use relative URL (production build served from same origin)
-const getWebSocketUrl = () => {
-  if (import.meta.env.VITE_WS_URL) {
-    return import.meta.env.VITE_WS_URL;
-  }
-  const wsProtocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
-  // Use Vite proxy if explicitly enabled (useful for remote dev with single port forwarding)
-  if (import.meta.env.VITE_USE_WS_PROXY === 'true') {
-    return `${wsProtocol}://${window.location.host}/ws`;
-  }
-  // In Vite dev server (port 5173), connect directly to backend to avoid proxy socket errors
-  if (window.location.port === '5173') {
-    return `${wsProtocol}://${window.location.hostname}:3000`;
-  }
-  // Production: same origin
-  return `${wsProtocol}://${window.location.host}`;
-};
-const BACKEND_WS_URL = getWebSocketUrl();
+// Use relative WebSocket URL to go through Vite's proxy (works with port forwarding)
+const BACKEND_WS_URL = import.meta.env.VITE_USE_WS_PROXY === 'true' ?
+  `ws://${window.location.host}/ws` : 'ws://localhost:3000';
 
 const MAX_RECONNECT_ATTEMPTS = 10;
 
