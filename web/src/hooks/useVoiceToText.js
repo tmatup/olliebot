@@ -293,9 +293,8 @@ export function useVoiceToText({ onTranscript, onFinalTranscript, onError } = {}
       }
     };
 
-    // Connect the audio graph
+    // Connect the audio graph (no output to destination to avoid feedback)
     source.connect(processor);
-    processor.connect(audioContext.destination);
   }, []);
 
   // Pre-acquire microphone and prepare upstream connection (call on hover)
