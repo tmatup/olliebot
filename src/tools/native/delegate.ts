@@ -14,22 +14,27 @@ export interface DelegationParams {
   rationale?: string;
   customName?: string;
   customEmoji?: string;
+  /** ID of the agent making this delegation call (for tracking) */
+  callerAgentId?: string;
 }
 
 export class DelegateTool implements NativeTool {
   readonly name = 'delegate';
   readonly description = `Delegate a task to a specialist agent. Use this when the task requires specialized expertise. Available types:
-- researcher: For research, information gathering, learning about topics
+- researcher: For quick research, information gathering, learning about topics
 - coder: For writing code, debugging, technical implementation
 - writer: For writing documents, editing text, content creation
-- planner: For planning, organizing, breaking down projects`;
+- planner: For planning, organizing, breaking down projects
+- deep-research-lead: For comprehensive multi-source research with citations (use for Deep Research requests)
+- research-worker: For parallel subtopic exploration (only used by deep-research-lead)
+- research-reviewer: For quality review of research reports (only used by deep-research-lead)`;
 
   readonly inputSchema = {
     type: 'object',
     properties: {
       type: {
         type: 'string',
-        enum: ['researcher', 'coder', 'writer', 'planner', 'custom'],
+        enum: ['researcher', 'coder', 'writer', 'planner', 'deep-research-lead', 'research-worker', 'research-reviewer', 'custom'],
         description: 'The type of specialist agent to spawn',
       },
       mission: {
@@ -48,15 +53,19 @@ export class DelegateTool implements NativeTool {
         type: 'string',
         description: 'Optional emoji for the agent',
       },
+      callerAgentId: {
+        type: 'string',
+        description: 'ID of the calling agent (for tracking). Pass your agent ID here.',
+      },
     },
     required: ['type', 'mission'],
   };
 
   async execute(params: Record<string, unknown>): Promise<NativeToolResult> {
-    const { type, mission, rationale, customName, customEmoji } = params;
+    const { type, mission, rationale, customName, customEmoji, callerAgentId } = params;
 
     // Validate type
-    const validTypes = ['researcher', 'coder', 'writer', 'planner', 'custom'];
+    const validTypes = ['researcher', 'coder', 'writer', 'planner', 'deep-research-lead', 'research-worker', 'research-reviewer', 'custom'];
     if (!validTypes.includes(type as string)) {
       return {
         success: false,
@@ -72,7 +81,7 @@ export class DelegateTool implements NativeTool {
     }
 
     // Return success with delegation params
-    // Actual delegation is performed by the supervisor
+    // Actual delegation is performed by the supervisor or parent agent
     return {
       success: true,
       output: {
@@ -82,6 +91,7 @@ export class DelegateTool implements NativeTool {
         rationale,
         customName,
         customEmoji,
+        callerAgentId: callerAgentId || 'unknown',
       },
     };
   }

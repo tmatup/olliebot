@@ -483,7 +483,7 @@ export class MCPClient {
     input_schema: Record<string, unknown>;
   }> {
     return this.getAvailableTools(options).map((tool) => ({
-      name: `${tool.serverId}__${tool.name}`,
+      name: `mcp.${tool.serverId}__${tool.name}`,
       description: tool.description,
       input_schema: tool.inputSchema,
     }));

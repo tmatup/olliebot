@@ -11,6 +11,9 @@ Why create this when "XYZ" exists (XYZ = whatever is trending this week)?
 - **Natural Language Tools**: Add your own tool in natural language `.md`, the system auto-generate `.js` and execute in sandboxed VM 
 
 ## Commodity Features
+- **Deep Research**: Use # to toggle Deep Research mode. It is not a particularly robust implementation, but it has the basic structure. This is mainly a proof of concept using our multi-agent execution system.
+- **RAG**: You can create RAG projects, each containg related documents (TXT, PDF) to be indexed and allow Q&A (RAG).
+- **Think mode**: Adjust reasoning efforts level using # in chat input to toggle Think or Think+ mode.
 - **Customizable Sub-agent**: Can launch specialized sub-agent for sub-tasks and these specialized sub-agents have system prompts that are customizable.
 - **MCP Integration**: Connect to Model Context Protocol servers for external tools
 - **Agent Skills Workflows**: Pre-packaged workflows like those for Claude (open standard)

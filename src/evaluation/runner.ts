@@ -291,8 +291,8 @@ export class EvaluationRunner {
       return undefined;
     }
 
-    // Look for native__delegate tool call
-    const delegateCall = toolCalls?.find(call => call.toolName === 'native__delegate');
+    // Look for delegate tool call
+    const delegateCall = toolCalls?.find(call => call.toolName === 'delegate');
 
     if (!delegateCall) {
       return { delegated: false };

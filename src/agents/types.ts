@@ -3,6 +3,63 @@
 import type { Channel, Message } from '../channels/types.js';
 import type { LLMService } from '../llm/service.js';
 
+// ============================================================
+// AGENT DELEGATION CONFIGURATION
+// ============================================================
+
+/**
+ * Agent delegation configuration.
+ * Controls which agents can invoke which other agents.
+ */
+export interface AgentDelegationConfig {
+  /**
+   * Whether this agent can delegate to other agents.
+   * Default: false (agents cannot delegate by default)
+   */
+  canDelegate: boolean;
+
+  /**
+   * List of agent IDs this agent is allowed to invoke.
+   * Only checked if canDelegate is true.
+   * Empty array = can delegate to any agent (not recommended).
+   */
+  allowedDelegates: string[];
+
+  /**
+   * Workflow scope restriction.
+   * If set, this agent can ONLY be invoked within the specified workflow.
+   * null = can be invoked from anywhere (supervisor, other agents).
+   */
+  restrictedToWorkflow: string | null;
+
+  /**
+   * Whether supervisor can directly invoke this agent.
+   * Default: true
+   * Set to false for agents that should only be used as sub-agents.
+   */
+  supervisorCanInvoke: boolean;
+}
+
+/**
+ * Workflow context passed through agent delegation chain.
+ */
+export interface WorkflowContext {
+  workflowId: string;
+  workflowInstanceId: string;
+  parentAgentId: string;
+  depth: number;
+}
+
+/**
+ * Default delegation config for agents that haven't specified one.
+ */
+export const DEFAULT_DELEGATION_CONFIG: AgentDelegationConfig = {
+  canDelegate: false,
+  allowedDelegates: [],
+  restrictedToWorkflow: null,
+  supervisorCanInvoke: true,
+};
+
 export type AgentRole = 'supervisor' | 'worker' | 'specialist';
 
 export type AgentStatus = 'idle' | 'working' | 'waiting' | 'completed' | 'error';

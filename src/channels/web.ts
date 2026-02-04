@@ -81,11 +81,14 @@ export class WebChannel implements Channel {
       sessionId?: string;
       attachments?: Array<{ name: string; type: string; size: number; data: string }>;
       reasoningEffort?: 'medium' | 'high' | 'xhigh';
+      messageType?: string; // e.g., 'deep_research'
+      messageId?: string; // Client-provided ID for deduplication
     };
 
     if (msg.type === 'message' && (msg.content || msg.attachments?.length) && this.messageHandler) {
       const message: Message = {
-        id: uuid(),
+        // Use client-provided messageId if available (for deduplication), otherwise generate one
+        id: msg.messageId || uuid(),
         channel: this.id,
         role: 'user',
         content: msg.content || '',
@@ -95,6 +98,8 @@ export class WebChannel implements Channel {
           conversationId: msg.conversationId,
           // Store as vendor-neutral 'reasoningMode' in DB (mapped from client's reasoningEffort)
           reasoningMode: msg.reasoningEffort,
+          // Message type for special handling (e.g., 'deep_research')
+          messageType: msg.messageType,
         },
         createdAt: new Date(),
       };
@@ -192,7 +197,13 @@ export class WebChannel implements Channel {
   }
 
   // Streaming support
-  startStream(streamId: string, agentInfo?: { agentId?: string; agentName?: string; agentEmoji?: string; conversationId?: string }): void {
+  startStream(streamId: string, agentInfo?: {
+    agentId?: string;
+    agentName?: string;
+    agentEmoji?: string;
+    agentType?: string;
+    conversationId?: string;
+  }): void {
     const payload = {
       type: 'stream_start',
       id: streamId,

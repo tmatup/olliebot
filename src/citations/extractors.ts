@@ -29,7 +29,7 @@ interface WebSearchOutput {
  * Extractor for native web_search tool
  */
 export const webSearchExtractor: CitationExtractor = {
-  pattern: /^native__web_search$/,
+  pattern: /^web_search$/,
 
   extract(
     requestId: string,
@@ -83,7 +83,7 @@ interface WebScrapeOutput {
  * Extractor for native web_scrape tool
  */
 export const webScrapeExtractor: CitationExtractor = {
-  pattern: /^native__web_scrape$/,
+  pattern: /^web_scrape$/,
 
   extract(
     requestId: string,
@@ -151,7 +151,7 @@ interface RAGQueryOutput {
  * Extractor for native query_rag_project tool
  */
 export const ragQueryExtractor: CitationExtractor = {
-  pattern: /^native__query_rag_project$/,
+  pattern: /^query_rag_project$/,
 
   extract(
     requestId: string,
@@ -205,7 +205,7 @@ interface WikipediaSearchOutput {
  * Extractor for native wikipedia_search tool
  */
 export const wikipediaSearchExtractor: CitationExtractor = {
-  pattern: /^native__wikipedia_search$/,
+  pattern: /^wikipedia_search$/,
 
   extract(
     requestId: string,
@@ -249,7 +249,7 @@ interface HttpClientOutput {
  * Extractor for native http_client tool
  */
 export const httpClientExtractor: CitationExtractor = {
-  pattern: /^native__http_client$/,
+  pattern: /^http_client$/,
 
   extract(
     requestId: string,
@@ -296,7 +296,7 @@ export const httpClientExtractor: CitationExtractor = {
  * Attempts to extract citation-worthy sources from MCP tool outputs
  */
 export const mcpToolExtractor: CitationExtractor = {
-  pattern: /^(?!native__|user__).+__.+$/, // Matches MCP pattern: serverId__toolName
+  pattern: /^mcp\..+__.+$/, // Matches MCP pattern: mcp.serverId__toolName
 
   extract(
     requestId: string,

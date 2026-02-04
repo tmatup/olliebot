@@ -916,6 +916,25 @@ html, body {
   color: rgba(255, 255, 255, 0.9);
 }
 
+/* Message type chip (e.g., Deep Research) - purple/violet */
+.message-type-chip {
+  background: rgba(139, 92, 246, 0.15);
+  border-color: #8b5cf6;
+}
+
+.message-type-chip .reasoning-chip-label {
+  color: #8b5cf6;
+}
+
+.message.user .message-type-chip {
+  background: rgba(139, 92, 246, 0.2);
+  border-color: rgba(139, 92, 246, 0.5);
+}
+
+.message.user .message-type-chip .reasoning-chip-label {
+  color: rgba(255, 255, 255, 0.9);
+}
+
 /* Typing indicator - 3 bouncing dots */
 .typing-indicator {
   display: inline-flex;
@@ -1484,6 +1503,20 @@ html, body {
   color: white;
 }
 
+/* Deep Research chip (purple/violet color) */
+.hashtag-chip-research {
+  background: rgba(139, 92, 246, 0.15);
+  border-color: rgba(139, 92, 246, 0.3);
+}
+
+.hashtag-chip-research .hashtag-chip-label {
+  color: #8b5cf6;
+}
+
+.hashtag-chip-research .hashtag-chip-remove:hover {
+  background: #8b5cf6;
+}
+
 /* Hashtag context menu */
 .hashtag-menu {
   position: fixed;
@@ -1904,36 +1937,41 @@ html, body {
   }
 }
 
-/* Tool Event - Compact System Message */
+/* Tool Event - Compact Control Message */
 .tool-event {
   display: flex;
   align-items: center;
-  gap: 0.625rem;
-  padding: 0.75rem 1rem;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
   background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
   border-radius: 0.5rem;
-  font-size: 0.875rem;
+  font-size: 0.8125rem;
   color: var(--text-secondary);
-  border-left: 3px solid var(--border-color);
   max-width: 100%;
   overflow: hidden;
-  min-height: 3rem;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.tool-event:hover {
+  background: var(--bg-hover);
 }
 
 .tool-event.running {
-  border-left-color: #2196f3;
+  border-color: #2196f3;
 }
 
 .tool-event.completed {
-  border-left-color: #4caf50;
+  border-color: var(--border-color);
 }
 
 .tool-event.failed {
-  border-left-color: #f44336;
+  border-color: #f44336;
 }
 
 .tool-icon {
-  font-size: 1.125rem;
+  font-size: 1rem;
   flex-shrink: 0;
 }
 
@@ -1962,14 +2000,11 @@ html, body {
   to { transform: rotate(360deg); }
 }
 
-.tool-name {
-  font-weight: 500;
+.tool-event .tool-name {
+  font-weight: 600;
   color: var(--text-primary);
   flex-shrink: 0;
-  max-width: 200px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  font-size: 0.8125rem;
 }
 
 .tool-mission {
@@ -1996,15 +2031,14 @@ html, body {
 
 .tool-expand-icon {
   flex-shrink: 0;
-  font-size: 0.625rem;
+  font-size: 0.75rem;
   color: var(--text-secondary);
   margin-left: auto;
-  transition: transform 0.2s;
 }
 
 /* Tool Event Wrapper for expansion */
 .tool-event-wrapper {
-  max-width: 100%;
+  max-width: 90%;
 }
 
 .tool-event-wrapper .tool-event {
@@ -2110,6 +2144,66 @@ html, body {
   margin-bottom: 0.25rem;
 }
 
+/* Collapsible Agent Message (e.g., research-worker) */
+.collapsible-agent-message {
+  max-width: 90%;
+}
+
+.collapsible-agent-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 0.5rem;
+  cursor: pointer;
+  transition: background 0.2s;
+  font-size: 0.8125rem;
+}
+
+.collapsible-agent-header:hover {
+  background: var(--bg-hover);
+}
+
+.collapsible-agent-message.expanded .collapsible-agent-header {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.collapsible-agent-icon {
+  font-size: 1rem;
+  flex-shrink: 0;
+}
+
+.collapsible-agent-name {
+  font-weight: 600;
+  color: var(--text-primary);
+  flex-shrink: 0;
+}
+
+.collapsible-agent-preview {
+  color: var(--text-secondary);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.collapsible-agent-expand-icon {
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  flex-shrink: 0;
+}
+
+.collapsible-agent-message.expanded > .message {
+  border: 1px solid var(--border-color);
+  border-top: none;
+  border-radius: 0 0 0.5rem 0.5rem;
+  margin-top: 0;
+  max-width: 100%;
+}
+
 .tool-result-with-image {
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
@@ -2137,29 +2231,27 @@ html, body {
   word-break: break-all;
 }
 
-/* Delegation Event - Compact System Message */
+/* Delegation Event - Compact Control Message */
 .delegation-event {
   display: flex;
   align-items: center;
-  gap: 0.625rem;
-  padding: 0.75rem 1rem;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
   background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
   border-radius: 0.5rem;
-  font-size: 0.875rem;
+  font-size: 0.8125rem;
   color: var(--text-secondary);
-  border-left: 3px solid var(--accent);
-  max-width: 100%;
-  overflow: hidden;
-  min-height: 3rem;
+  max-width: 90%;
 }
 
 .delegation-icon {
-  font-size: 1.125rem;
+  font-size: 1rem;
   flex-shrink: 0;
 }
 
 .delegation-agent {
-  font-weight: 500;
+  font-weight: 600;
   color: var(--text-primary);
   flex-shrink: 0;
   white-space: nowrap;
@@ -2172,12 +2264,6 @@ html, body {
   overflow: hidden;
   text-overflow: ellipsis;
   color: var(--text-secondary);
-  font-style: italic;
-}
-
-.delegation-mission::before {
-  content: '— ';
-  color: var(--border-color);
 }
 
 /* Task Run Event - Compact System Message */

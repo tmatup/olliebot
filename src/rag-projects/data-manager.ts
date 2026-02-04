@@ -20,7 +20,7 @@ export class RagDataManager {
    * Uses the same matching logic as base-agent's getToolsForLLM.
    */
   hasQueryToolAccess(canAccessTools: string[]): boolean {
-    const toolName = 'native__query_rag_project';
+    const toolName = 'query_rag_project';
 
     // No patterns = no tools
     if (canAccessTools.length === 0) {

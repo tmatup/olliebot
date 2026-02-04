@@ -60,8 +60,15 @@ export class ToolRunner {
 
   /**
    * Register a user-defined tool
+   * If name conflicts with a native tool, native tool takes precedence and user tool is rejected
    */
   registerUserTool(tool: NativeTool): void {
+    if (this.nativeTools.has(tool.name)) {
+      console.error(
+        `[ToolRunner] User tool '${tool.name}' conflicts with native tool. Native tool takes precedence. User tool ignored.`
+      );
+      return;
+    }
     this.userTools.set(tool.name, tool);
     console.log(`[ToolRunner] Registered user tool: ${tool.name}`);
   }
@@ -94,30 +101,30 @@ export class ToolRunner {
   getToolsForLLM(): LLMTool[] {
     const tools: LLMTool[] = [];
 
-    // Add native tools
+    // Add native tools (no prefix)
     for (const [name, tool] of this.nativeTools) {
       tools.push({
-        name: `native__${name}`,
+        name: name,
         description: tool.description,
         input_schema: tool.inputSchema,
       });
     }
 
-    // Add user-defined tools
+    // Add user-defined tools (user. prefix)
     for (const [name, tool] of this.userTools) {
       tools.push({
-        name: `user__${name}`,
+        name: `user.${name}`,
         description: tool.description,
         input_schema: tool.inputSchema,
       });
     }
 
-    // Add MCP tools
+    // Add MCP tools (already prefixed with mcp. by MCPClient)
     if (this.mcpClient) {
       const mcpTools = this.mcpClient.getToolsForLLM();
       for (const tool of mcpTools) {
         tools.push({
-          name: tool.name, // Already prefixed with serverId__
+          name: tool.name, // Already prefixed with mcp.serverId__toolName
           description: tool.description,
           input_schema: tool.input_schema,
         });
@@ -137,31 +144,33 @@ export class ToolRunner {
   getToolDefinitions(): ToolDefinition[] {
     const tools: ToolDefinition[] = [];
 
-    // Add native tools
+    // Add native tools (no prefix)
     for (const [name, tool] of this.nativeTools) {
       tools.push({
-        name: `native__${name}`,
+        name: name,
         description: tool.description,
         source: 'native',
         inputSchema: tool.inputSchema,
       });
     }
 
-    // Add user-defined tools
+    // Add user-defined tools (user. prefix)
     for (const [name, tool] of this.userTools) {
       tools.push({
-        name: `user__${name}`,
+        name: `user.${name}`,
         description: tool.description,
         source: 'user',
         inputSchema: tool.inputSchema,
       });
     }
 
-    // Add MCP tools
+    // Add MCP tools (mcp. prefix already added by MCPClient)
     if (this.mcpClient) {
       const mcpTools = this.mcpClient.getToolsForLLM();
       for (const tool of mcpTools) {
-        const [serverId] = tool.name.split('__');
+        // Parse mcp.serverId__toolName format
+        const nameWithoutPrefix = tool.name.replace(/^mcp\./, '');
+        const [serverId] = nameWithoutPrefix.split('__');
         tools.push({
           name: tool.name,
           description: tool.description,
@@ -311,10 +320,10 @@ export class ToolRunner {
 
     switch (source) {
       case 'native': {
-        const nativeName = toolName.replace('native__', '');
-        const tool = this.nativeTools.get(nativeName);
+        // No prefix for native tools
+        const tool = this.nativeTools.get(toolName);
         if (!tool) {
-          throw new Error(`Native tool not found: ${nativeName}`);
+          throw new Error(`Native tool not found: ${toolName}`);
         }
         const result = await tool.execute(parameters);
         if (!result.success) {
@@ -324,7 +333,7 @@ export class ToolRunner {
       }
 
       case 'user': {
-        const userName = toolName.replace('user__', '');
+        const userName = toolName.replace('user.', '');
         const tool = this.userTools.get(userName);
         if (!tool) {
           throw new Error(`User tool not found: ${userName}`);
@@ -340,8 +349,9 @@ export class ToolRunner {
         if (!this.mcpClient) {
           throw new Error('MCP client not configured');
         }
-        // Parse serverId__toolName format
-        const [serverId, ...nameParts] = toolName.split('__');
+        // Parse mcp.serverId__toolName format
+        const nameWithoutPrefix = toolName.replace(/^mcp\./, '');
+        const [serverId, ...nameParts] = nameWithoutPrefix.split('__');
         const mcpToolName = nameParts.join('__');
         const result = await this.mcpClient.invokeTool({
           serverId,
@@ -363,14 +373,14 @@ export class ToolRunner {
    * Parse tool name to determine source
    */
   parseToolName(fullName: string): { source: ToolSource; name: string } {
-    if (fullName.startsWith('native__')) {
-      return { source: 'native', name: fullName.replace('native__', '') };
+    if (fullName.startsWith('user.')) {
+      return { source: 'user', name: fullName.replace('user.', '') };
     }
-    if (fullName.startsWith('user__')) {
-      return { source: 'user', name: fullName.replace('user__', '') };
+    if (fullName.startsWith('mcp.')) {
+      return { source: 'mcp', name: fullName };
     }
-    // Assume MCP tool (format: serverId__toolName)
-    return { source: 'mcp', name: fullName };
+    // No prefix = native tool
+    return { source: 'native', name: fullName };
   }
 
   /**

@@ -144,14 +144,14 @@ export class MockedToolRunner {
    * Parse tool name to determine source (same as ToolRunner)
    */
   parseToolName(fullName: string): { source: ToolSource; name: string } {
-    if (fullName.startsWith('native__')) {
-      return { source: 'native', name: fullName.replace('native__', '') };
+    if (fullName.startsWith('user.')) {
+      return { source: 'user', name: fullName.replace('user.', '') };
     }
-    if (fullName.startsWith('user__')) {
-      return { source: 'user', name: fullName.replace('user__', '') };
+    if (fullName.startsWith('mcp.')) {
+      return { source: 'mcp', name: fullName };
     }
-    // Assume MCP tool
-    return { source: 'mcp', name: fullName };
+    // No prefix = native tool
+    return { source: 'native', name: fullName };
   }
 
   /**

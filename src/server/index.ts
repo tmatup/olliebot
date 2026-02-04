@@ -143,6 +143,7 @@ export class OllieBotServer {
           createdAt: m.createdAt,
           agentName: m.metadata?.agentName,
           agentEmoji: m.metadata?.agentEmoji,
+          agentType: m.metadata?.agentType,
           attachments: m.metadata?.attachments,
           messageType: m.metadata?.type,
           taskId: m.metadata?.taskId,
@@ -238,16 +239,19 @@ export class OllieBotServer {
             const toolName = tool.name;
             const inputs = extractInputs(tool.input_schema);
 
-            if (toolName.startsWith('user__')) {
-              user.push({ name: toolName.replace('user__', ''), description: tool.description, inputs });
-            } else if (toolName.startsWith('native__')) {
-              builtin.push({ name: toolName.replace('native__', ''), description: tool.description, inputs });
-            } else if (toolName.includes('__')) {
-              const [serverId, ...rest] = toolName.split('__');
+            if (toolName.startsWith('user.')) {
+              user.push({ name: toolName.replace('user.', ''), description: tool.description, inputs });
+            } else if (toolName.startsWith('mcp.')) {
+              // mcp.serverId__toolName format
+              const nameWithoutPrefix = toolName.replace(/^mcp\./, '');
+              const [serverId, ...rest] = nameWithoutPrefix.split('__');
               const mcpToolName = rest.join('__');
               const serverName = serverNames[serverId] || serverId;
               if (!mcp[serverName]) mcp[serverName] = [];
               mcp[serverName].push({ name: mcpToolName, description: tool.description, inputs });
+            } else {
+              // No prefix = native/builtin tool
+              builtin.push({ name: toolName, description: tool.description, inputs });
             }
           }
         }
@@ -388,23 +392,17 @@ export class OllieBotServer {
         const toolName = tool.name;
         const inputs = extractInputs(tool.input_schema);
 
-        if (toolName.startsWith('user__')) {
+        if (toolName.startsWith('user.')) {
           // User-defined tool
           user.push({
-            name: toolName.replace('user__', ''),
+            name: toolName.replace('user.', ''),
             description: tool.description,
             inputs,
           });
-        } else if (toolName.startsWith('native__')) {
-          // Built-in native tool
-          builtin.push({
-            name: toolName.replace('native__', ''),
-            description: tool.description,
-            inputs,
-          });
-        } else if (toolName.includes('__')) {
-          // MCP tool: serverId__toolName
-          const [serverId, ...rest] = toolName.split('__');
+        } else if (toolName.startsWith('mcp.')) {
+          // MCP tool: mcp.serverId__toolName
+          const nameWithoutPrefix = toolName.replace(/^mcp\./, '');
+          const [serverId, ...rest] = nameWithoutPrefix.split('__');
           const mcpToolName = rest.join('__');
           const serverName = serverNames[serverId] || serverId;
 
@@ -413,6 +411,13 @@ export class OllieBotServer {
           }
           mcp[serverName].push({
             name: mcpToolName,
+            description: tool.description,
+            inputs,
+          });
+        } else {
+          // No prefix = built-in native tool
+          builtin.push({
+            name: toolName,
             description: tool.description,
             inputs,
           });
@@ -466,6 +471,7 @@ export class OllieBotServer {
           createdAt: m.createdAt,
           agentName: m.metadata?.agentName,
           agentEmoji: m.metadata?.agentEmoji,
+          agentType: m.metadata?.agentType,
           // Attachments
           attachments: m.metadata?.attachments,
           // Message type (task_run, tool_event, delegation, etc.)
@@ -482,7 +488,7 @@ export class OllieBotServer {
           toolError: m.metadata?.error,
           toolParameters: m.metadata?.parameters,
           toolResult: m.metadata?.result,
-          // Delegation metadata
+          // Delegation metadata (legacy - agentType above is preferred)
           delegationAgentId: m.metadata?.agentId,
           delegationAgentType: m.metadata?.agentType,
           delegationMission: m.metadata?.mission,
@@ -611,6 +617,7 @@ export class OllieBotServer {
           createdAt: m.createdAt,
           agentName: m.metadata?.agentName,
           agentEmoji: m.metadata?.agentEmoji,
+          agentType: m.metadata?.agentType,
           // Attachments
           attachments: m.metadata?.attachments,
           // Message type (task_run, tool_event, delegation, etc.)

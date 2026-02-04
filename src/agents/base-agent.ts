@@ -131,9 +131,10 @@ export abstract class AbstractAgent implements BaseAgent {
    *
    * Patterns:
    * - '*' = all tools
-   * - 'native__*' = all native tools
-   * - 'native__web-search' = specific tool
-   * - '!native__delegate' = exclude specific tool (blacklist)
+   * - 'web_search' = specific native tool (no prefix)
+   * - 'user.*' = all user tools
+   * - 'mcp.*' = all MCP tools
+   * - '!delegate' = exclude specific tool (blacklist)
    */
   protected getToolsForLLM(): LLMTool[] {
     if (!this.toolRunner) {
@@ -350,11 +351,12 @@ export abstract class AbstractAgent implements BaseAgent {
     };
 
     for (const tool of tools) {
-      if (tool.name.startsWith('native__')) {
-        categories.native.push(tool);
-      } else {
-        // MCP tools (format: serverId__toolName)
+      if (tool.name.startsWith('mcp.')) {
+        // MCP tools (format: mcp.serverId__toolName)
         categories.mcp.push(tool);
+      } else {
+        // Native tools (no prefix) and user tools (user. prefix)
+        categories.native.push(tool);
       }
     }
 
@@ -465,6 +467,8 @@ export interface SpecialistTemplate {
   type: string;
   identity: Omit<AgentIdentity, 'id'>;
   canAccessTools: string[];
+  delegation?: import('./types.js').AgentDelegationConfig;
+  collapseResponseByDefault?: boolean;
 }
 
 // Forward declaration - will be implemented in registry.ts
@@ -480,4 +484,7 @@ export interface AgentRegistry {
   findSpecialistTypeByName(name: string): string | undefined;
   loadAgentPrompt(type: string): string;
   getToolAccessForSpecialist(type: string): string[];
+  // Delegation methods
+  getDelegationConfigForSpecialist(type: string): import('./types.js').AgentDelegationConfig;
+  canDelegate(sourceAgentType: string, targetAgentType: string, currentWorkflowId: string | null): boolean;
 }

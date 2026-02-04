@@ -153,6 +153,11 @@ const CONFIG = {
   webSearchProvider: (process.env.WEB_SEARCH_PROVIDER || 'tavily') as WebSearchProvider,
   webSearchApiKey: process.env.WEB_SEARCH_API_KEY || '',
   googleCustomSearchEngineId: process.env.GOOGLE_CUSTOM_SEARCH_ENGINE_ID || '',
+
+  // Deep Research configuration
+  // Falls back to main provider/model if not specified
+  deepResearchProvider: process.env.DEEP_RESEARCH_PROVIDER || process.env.MAIN_PROVIDER || 'anthropic',
+  deepResearchModel: process.env.DEEP_RESEARCH_MODEL || process.env.MAIN_MODEL || 'claude-sonnet-4-20250514',
 };
 
 function createLLMProvider(provider: string, model: string): LLMProvider {
@@ -502,18 +507,14 @@ async function main(): Promise<void> {
 
         for (const tool of tools) {
           const toolName = tool.name;
-          if (toolName.startsWith('user__')) {
+          if (toolName.startsWith('user.')) {
             user.push({
-              name: toolName.replace('user__', ''),
+              name: toolName.replace('user.', ''),
               description: tool.description,
             });
-          } else if (toolName.startsWith('native__')) {
-            builtin.push({
-              name: toolName.replace('native__', ''),
-              description: tool.description,
-            });
-          } else if (toolName.includes('__')) {
-            const [serverId, ...rest] = toolName.split('__');
+          } else if (toolName.startsWith('mcp.')) {
+            const nameWithoutPrefix = toolName.replace(/^mcp\./, '');
+            const [serverId, ...rest] = nameWithoutPrefix.split('__');
             const mcpToolName = rest.join('__');
             const serverName = serverNames[serverId] || serverId;
             if (!mcp[serverName]) {
@@ -521,6 +522,12 @@ async function main(): Promise<void> {
             }
             mcp[serverName].push({
               name: mcpToolName,
+              description: tool.description,
+            });
+          } else {
+            // No prefix = native/builtin tool
+            builtin.push({
+              name: toolName,
               description: tool.description,
             });
           }
