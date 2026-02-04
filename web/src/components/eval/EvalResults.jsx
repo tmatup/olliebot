@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useState, memo } from 'react';
 
-export function EvalResults({ results, onClose }) {
+export const EvalResults = memo(function EvalResults({ results, onClose }) {
   const [activeTab, setActiveTab] = useState('summary');
   const [expandedRuns, setExpandedRuns] = useState(new Set());
 
@@ -333,4 +333,8 @@ export function EvalResults({ results, onClose }) {
       </div>
     </div>
   );
-}
+}, (prevProps, nextProps) => {
+  // Custom comparison - only re-render when value props change
+  // Callbacks are not compared since they may have new references but same behavior
+  return prevProps.results === nextProps.results;
+});

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback, memo, useMemo } from 'react';
+import React, { useState, useEffect, useRef, memo, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import rehypeRaw from 'rehype-raw';
@@ -19,11 +19,11 @@ import { BrowserSessions } from './components/BrowserSessions';
 import { BrowserPreview } from './components/BrowserPreview';
 import RAGProjects from './components/RAGProjects';
 import { SourcePanel } from './components/SourcePanel';
+import { ChatInput } from './components/ChatInput';
 
 // Code block component with copy button and language header
-// Memoized to prevent unnecessary re-renders
 // Uses deferred rendering for faster initial display
-const CodeBlock = memo(function CodeBlock({ language, children }) {
+function CodeBlock({ language, children }) {
   const [copied, setCopied] = useState(false);
   const [isReady, setIsReady] = useState(false);
   const hasLanguage = language && language !== 'text';
@@ -100,59 +100,68 @@ const CodeBlock = memo(function CodeBlock({ language, children }) {
       )}
     </div>
   );
-});
+}
+
+// Static markdown components that don't depend on props (defined once, reused)
+const staticMarkdownComponents = {
+  pre({ children }) {
+    return <div className="code-block-wrapper">{children}</div>;
+  },
+  table({ children }) {
+    return (
+      <div className="table-wrapper">
+        <table>{children}</table>
+      </div>
+    );
+  },
+};
+
+// Rehype plugin arrays (stable references)
+const rehypePluginsWithHtml = [rehypeRaw, rehypeSanitize];
+const rehypePluginsDefault = [rehypeSanitize];
+const remarkPluginsDefault = [remarkGfm];
+
+// Factory to create code component (only recreated when isStreaming changes)
+function createCodeComponent(isStreaming) {
+  return function CodeComponent({ node, className, children, ...props }) {
+    const match = /language-(\w+)/.exec(className || '');
+    const language = match ? match[1] : null;
+    const isBlock = match || (node?.tagName === 'code' && node?.parent?.tagName === 'pre');
+
+    if (isBlock) {
+      const codeContent = String(children).replace(/\n$/, '');
+      if (language === 'html' || language === 'htm') {
+        return <HtmlPreview html={codeContent} isStreaming={isStreaming} />;
+      }
+      return <CodeBlock language={language}>{codeContent}</CodeBlock>;
+    }
+    return (
+      <code className="inline-code" {...props}>
+        {children}
+      </code>
+    );
+  };
+}
+
+// Cache for markdown components keyed by isStreaming value
+const markdownComponentsCache = new Map();
+function getMarkdownComponents(isStreaming) {
+  if (!markdownComponentsCache.has(isStreaming)) {
+    markdownComponentsCache.set(isStreaming, {
+      ...staticMarkdownComponents,
+      code: createCodeComponent(isStreaming),
+    });
+  }
+  return markdownComponentsCache.get(isStreaming);
+}
 
 /**
- * Memoized message content component to prevent re-renders when parent state changes.
- * Only re-renders when content, html, or isStreaming props change.
+ * Message content component for rendering markdown messages.
+ * Memoized to prevent re-renders when parent re-renders with same props.
  */
 const MessageContent = memo(function MessageContent({ content, html = false, isStreaming = false }) {
-  // Memoize the components object to prevent ReactMarkdown re-renders
-  const components = useMemo(() => ({
-    // Custom rendering for pre (code blocks)
-    pre({ children }) {
-      return <div className="code-block-wrapper">{children}</div>;
-    },
-    // Custom rendering for code with syntax highlighting
-    code({ node, className, children, ...props }) {
-      const match = /language-(\w+)/.exec(className || '');
-      const language = match ? match[1] : null;
-      // If inside a pre tag (code block), render as block
-      const isBlock = match || (node?.tagName === 'code' && node?.parent?.tagName === 'pre');
-
-      if (isBlock) {
-        const codeContent = String(children).replace(/\n$/, '');
-
-        // Check if this is HTML content - render with HtmlPreview
-        if (language === 'html' || language === 'htm') {
-          return <HtmlPreview html={codeContent} isStreaming={isStreaming} />;
-        }
-
-        // Use CodeBlock component with copy button
-        return <CodeBlock language={language}>{codeContent}</CodeBlock>;
-      }
-      // Inline code
-      return (
-        <code className="inline-code" {...props}>
-          {children}
-        </code>
-      );
-    },
-    // Custom table rendering
-    table({ children }) {
-      return (
-        <div className="table-wrapper">
-          <table>{children}</table>
-        </div>
-      );
-    },
-  }), [isStreaming]);
-
-  // Memoize rehype plugins array
-  const rehypePlugins = useMemo(
-    () => html ? [rehypeRaw, rehypeSanitize] : [rehypeSanitize],
-    [html]
-  );
+  const components = getMarkdownComponents(isStreaming);
+  const rehypePlugins = html ? rehypePluginsWithHtml : rehypePluginsDefault;
 
   return (
     <ReactMarkdown
@@ -163,11 +172,80 @@ const MessageContent = memo(function MessageContent({ content, html = false, isS
       {content}
     </ReactMarkdown>
   );
+}, (prevProps, nextProps) => {
+  // Custom comparison - check each prop for equality
+  return (
+    prevProps.content === nextProps.content &&
+    prevProps.html === nextProps.html &&
+    prevProps.isStreaming === nextProps.isStreaming
+  );
 });
 
 // Module-level flag to prevent double-fetching in React Strict Mode
 // (Strict Mode unmounts/remounts component, so refs don't persist)
 let appInitialLoadDone = false;
+
+// Agent types that should have their responses collapsed by default (module-level constant)
+const COLLAPSE_BY_DEFAULT_AGENT_TYPES = new Set([
+  'research-worker',
+  'research-reviewer',
+]);
+
+// Map display names to agent type IDs (for legacy messages without agentType)
+const AGENT_NAME_TO_TYPE = {
+  'Research Worker': 'research-worker',
+  'Research Reviewer': 'research-reviewer',
+  'Deep Research Lead': 'deep-research-lead',
+};
+
+// Helper function to check if an agent type should collapse by default
+function shouldCollapseByDefault(agentType, agentName) {
+  if (agentType && COLLAPSE_BY_DEFAULT_AGENT_TYPES.has(agentType)) {
+    return true;
+  }
+  if (agentName) {
+    const mappedType = AGENT_NAME_TO_TYPE[agentName];
+    if (mappedType && COLLAPSE_BY_DEFAULT_AGENT_TYPES.has(mappedType)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// Helper to transform message data from API format (pure function, no component deps)
+function transformMessages(data) {
+  return data.map((msg) => {
+    let role = msg.role;
+    if (msg.messageType === 'task_run') role = 'task_run';
+    else if (msg.messageType === 'tool_event' || msg.role === 'tool') role = 'tool';
+    else if (msg.messageType === 'delegation') role = 'delegation';
+
+    return {
+      id: msg.id,
+      role,
+      content: msg.content,
+      timestamp: msg.createdAt,
+      agentName: msg.agentName || msg.delegationAgentId,
+      agentEmoji: msg.agentEmoji,
+      attachments: msg.attachments,
+      taskId: msg.taskId,
+      taskName: msg.taskName,
+      taskDescription: msg.taskDescription,
+      toolName: msg.toolName,
+      source: msg.toolSource,
+      status: msg.toolSuccess === true ? 'completed' : msg.toolSuccess === false ? 'failed' : undefined,
+      durationMs: msg.toolDurationMs,
+      error: msg.toolError,
+      parameters: msg.toolParameters,
+      result: msg.toolResult,
+      agentType: msg.agentType || msg.delegationAgentType || (msg.agentName?.includes('-') ? msg.agentName : undefined),
+      mission: msg.delegationMission,
+      reasoningMode: msg.reasoningMode,
+      messageType: msg.messageType,
+      citations: msg.citations,
+    };
+  });
+}
 
 function App() {
   // Router hooks
@@ -178,7 +256,6 @@ function App() {
   const mode = location.pathname.startsWith('/eval') ? MODES.EVAL : MODES.CHAT;
 
   const [messages, setMessages] = useState([]);
-  const [input, setInput] = useState('');
   const [attachments, setAttachments] = useState([]);
   const [isDragOver, setIsDragOver] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
@@ -231,35 +308,6 @@ function App() {
   // Expanded tool events
   const [expandedTools, setExpandedTools] = useState(new Set());
 
-  // Agent types that should have their responses collapsed by default
-  const COLLAPSE_BY_DEFAULT_AGENT_TYPES = useMemo(() => new Set([
-    'research-worker',
-    'research-reviewer',
-  ]), []);
-
-  // Map display names to agent type IDs (for legacy messages without agentType)
-  const AGENT_NAME_TO_TYPE = useMemo(() => ({
-    'Research Worker': 'research-worker',
-    'Research Reviewer': 'research-reviewer',
-    'Deep Research Lead': 'deep-research-lead',
-  }), []);
-
-  // Helper function to check if an agent type should collapse by default
-  const shouldCollapseByDefault = useCallback((agentType, agentName) => {
-    // First try the explicit agentType
-    if (agentType && COLLAPSE_BY_DEFAULT_AGENT_TYPES.has(agentType)) {
-      return true;
-    }
-    // Fallback: map agentName to agentType for legacy messages
-    if (agentName) {
-      const mappedType = AGENT_NAME_TO_TYPE[agentName];
-      if (mappedType && COLLAPSE_BY_DEFAULT_AGENT_TYPES.has(mappedType)) {
-        return true;
-      }
-    }
-    return false;
-  }, [COLLAPSE_BY_DEFAULT_AGENT_TYPES, AGENT_NAME_TO_TYPE]);
-
   // Expanded agent messages (for agents that collapse by default, like research-worker)
   const [expandedAgentMessages, setExpandedAgentMessages] = useState(new Set());
 
@@ -274,24 +322,28 @@ function App() {
   // Reasoning mode state
   const [reasoningMode, setReasoningMode] = useState(null); // null | 'high' | 'xhigh'
   const [messageType, setMessageType] = useState(null); // null | 'deep_research'
-  const [hashtagMenuOpen, setHashtagMenuOpen] = useState(false);
-  const [hashtagMenuPosition, setHashtagMenuPosition] = useState({ top: 0, left: 0 });
   const [modelCapabilities, setModelCapabilities] = useState({ reasoningEfforts: [] });
-  const [hashtagMenuIndex, setHashtagMenuIndex] = useState(0);
 
   const messagesEndRef = useRef(null);
   const messagesContainerRef = useRef(null);
-  const textareaRef = useRef(null);
+  const chatInputRef = useRef(null);
 
   // Ref to track current conversation ID for use in callbacks
   const currentConversationIdRef = useRef(currentConversationId);
-  currentConversationIdRef.current = currentConversationId;
 
   // Ref to track navigate function for use in callbacks
   const navigateRef = useRef(navigate);
-  navigateRef.current = navigate;
 
-  const handleMessage = useCallback((data) => {
+  // Update refs via effect (not during render - React Compiler requirement)
+  useEffect(() => {
+    currentConversationIdRef.current = currentConversationId;
+  }, [currentConversationId]);
+
+  useEffect(() => {
+    navigateRef.current = navigate;
+  }, [navigate]);
+
+  const handleMessage = (data) => {
     // Helper to check if message belongs to current conversation
     const isForCurrentConversation = (msgConversationId) => {
       // If no conversationId specified, assume it's for current conversation
@@ -647,117 +699,116 @@ function App() {
         .then((projects) => setRagProjects(projects))
         .catch(() => {});
     }
-  }, []);
+  };
 
-  // Helper to transform message data from API format
-  const transformMessages = useCallback((data) => {
-    return data.map((msg) => {
-      // Determine the role based on message type
-      let role = msg.role;
-      if (msg.messageType === 'task_run') {
-        role = 'task_run';
-      } else if (msg.messageType === 'tool_event' || msg.role === 'tool') {
-        role = 'tool';
-      } else if (msg.messageType === 'delegation') {
-        role = 'delegation';
+  // Ref to hold the loadStartupData function (updated via effect)
+  const loadStartupDataRef = useRef(null);
+
+  // Update loadStartupData ref via effect (not during render)
+  useEffect(() => {
+    loadStartupDataRef.current = async () => {
+      try {
+        const res = await fetch('/api/startup');
+        if (!res.ok) {
+          console.error('Startup API not available');
+          setConversations([]);
+          setCurrentConversationId(null);
+          setMessages([]);
+          setConversationsLoading(false);
+          setShowSkeleton(false);
+          return;
+        }
+        const data = await res.json();
+
+        // Model capabilities
+        setModelCapabilities(data.modelCapabilities);
+
+        // Conversations
+        const mappedConversations = data.conversations.map(c => ({
+          id: c.id,
+          title: c.title,
+          updatedAt: c.updatedAt || c.updated_at,
+          isWellKnown: c.isWellKnown || false,
+          icon: c.icon,
+        }));
+        setConversations(mappedConversations);
+
+        // Set default conversation
+        const feedConversation = mappedConversations.find(c => c.id === ':feed:');
+        if (feedConversation) {
+          setCurrentConversationId(feedConversation.id);
+        } else if (mappedConversations.length > 0) {
+          setCurrentConversationId(mappedConversations[0].id);
+        }
+
+        // Messages - transform API format to internal format
+        setMessages(data.messages.map((msg) => {
+          let role = msg.role;
+          if (msg.messageType === 'task_run') role = 'task_run';
+          else if (msg.messageType === 'tool_event' || msg.role === 'tool') role = 'tool';
+          else if (msg.messageType === 'delegation') role = 'delegation';
+
+          return {
+            id: msg.id,
+            role,
+            content: msg.content,
+            timestamp: msg.createdAt,
+            agentName: msg.agentName || msg.delegationAgentId,
+            agentEmoji: msg.agentEmoji,
+            attachments: msg.attachments,
+            taskId: msg.taskId,
+            taskName: msg.taskName,
+            taskDescription: msg.taskDescription,
+            toolName: msg.toolName,
+            source: msg.toolSource,
+            status: msg.toolSuccess === true ? 'completed' : msg.toolSuccess === false ? 'failed' : undefined,
+            durationMs: msg.toolDurationMs,
+            error: msg.toolError,
+            parameters: msg.toolParameters,
+            result: msg.toolResult,
+            agentType: msg.agentType || msg.delegationAgentType || (msg.agentName?.includes('-') ? msg.agentName : undefined),
+            mission: msg.delegationMission,
+            reasoningMode: msg.reasoningMode,
+            messageType: msg.messageType,
+            citations: msg.citations,
+          };
+        }));
+
+        // Sidebar data
+        setAgentTasks(data.tasks);
+        setSkills(data.skills);
+        setMcps(data.mcps);
+        setTools(data.tools);
+        const ragProjectsData = data.ragProjects;
+        if (ragProjectsData) {
+          setRagProjects(ragProjectsData);
+        } else {
+          setRagProjects([]);
+        }
+      } catch (error) {
+        console.error('Failed to load startup data:', error);
+        setConversations([]);
+        setCurrentConversationId(null);
+        setMessages([]);
       }
-
-      return {
-        id: msg.id,
-        role,
-        content: msg.content,
-        timestamp: msg.createdAt,
-        agentName: msg.agentName || msg.delegationAgentId,
-        agentEmoji: msg.agentEmoji,
-        attachments: msg.attachments,
-        // Task metadata
-        taskId: msg.taskId,
-        taskName: msg.taskName,
-        taskDescription: msg.taskDescription,
-        // Tool event metadata
-        toolName: msg.toolName,
-        source: msg.toolSource,
-        status: msg.toolSuccess === true ? 'completed' : msg.toolSuccess === false ? 'failed' : undefined,
-        durationMs: msg.toolDurationMs,
-        error: msg.toolError,
-        parameters: msg.toolParameters,
-        result: msg.toolResult,
-        // Delegation metadata
-        // agentType fallback: use agentName if it looks like an agent type ID (contains hyphen)
-        agentType: msg.agentType || msg.delegationAgentType || (msg.agentName?.includes('-') ? msg.agentName : undefined),
-        mission: msg.delegationMission,
-        // Reasoning mode (from DB, vendor-neutral)
-        reasoningMode: msg.reasoningMode,
-        // Message type (e.g., deep_research)
-        messageType: msg.messageType,
-        // Citations
-        citations: msg.citations,
-      };
-    });
-  }, []);
-
-  // Load all startup data in a single request
-  const loadStartupData = useCallback(async () => {
-    try {
-      const res = await fetch('/api/startup');
-      if (!res.ok) throw new Error('Startup API not available');
-      const data = await res.json();
-
-      // Model capabilities
-      setModelCapabilities(data.modelCapabilities);
-
-      // Conversations
-      const mappedConversations = data.conversations.map(c => ({
-        id: c.id,
-        title: c.title,
-        updatedAt: c.updatedAt || c.updated_at,
-        isWellKnown: c.isWellKnown || false,
-        icon: c.icon,
-      }));
-      setConversations(mappedConversations);
-
-      // Set default conversation
-      const feedConversation = mappedConversations.find(c => c.id === ':feed:');
-      if (feedConversation) {
-        setCurrentConversationId(feedConversation.id);
-      } else if (mappedConversations.length > 0) {
-        setCurrentConversationId(mappedConversations[0].id);
-      }
-
-      // Messages
-      setMessages(transformMessages(data.messages));
-
-      // Sidebar data
-      setAgentTasks(data.tasks);
-      setSkills(data.skills);
-      setMcps(data.mcps);
-      setTools(data.tools);
-      setRagProjects(data.ragProjects || []);
-    } catch (error) {
-      console.error('Failed to load startup data:', error);
-      // Set empty states on failure
-      setConversations([]);
-      setCurrentConversationId(null);
-      setMessages([]);
-    } finally {
       setConversationsLoading(false);
       setShowSkeleton(false);
-    }
-  }, [transformMessages]);
+    };
+  }, []);
 
   // Track if this is the first connection (to avoid refreshing on initial connect)
   const hasConnectedOnce = useRef(false);
 
-  const handleOpen = useCallback(() => {
+  const handleOpen = () => {
     setIsConnected(true);
     // Only refresh data on REconnection, not initial connection
     // (initial data load is handled by the mount useEffect)
     if (hasConnectedOnce.current) {
-      loadStartupData();
+      loadStartupDataRef.current?.();
     }
     hasConnectedOnce.current = true;
-  }, [loadStartupData]);
-  const handleClose = useCallback(() => setIsConnected(false), []);
+  };
+  const handleClose = () => setIsConnected(false);
 
   const { sendMessage, connectionState } = useWebSocket({
     onMessage: handleMessage,
@@ -776,10 +827,9 @@ function App() {
       setShowSkeleton(true);
     }, 500);
 
-    loadStartupData().finally(() => clearTimeout(skeletonTimer));
+    loadStartupDataRef.current?.().finally(() => clearTimeout(skeletonTimer));
 
     return () => clearTimeout(skeletonTimer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Smart auto-scroll - only scroll if user hasn't manually scrolled up
@@ -876,16 +926,16 @@ function App() {
   const isScrollingToBottom = useRef(false);
 
   // Handle wheel events - immediately disengage auto-scroll when user scrolls up
-  const handleWheel = useCallback((e) => {
+  const handleWheel = (e) => {
     if (e.deltaY < 0) {
       // User is scrolling UP - immediately disengage auto-scroll
       setIsUserScrolled(true);
       setShowScrollButton(true);
     }
-  }, []);
+  };
 
   // Handle scroll events to detect scroll position (only controls button visibility)
-  const handleScroll = useCallback(() => {
+  const handleScroll = () => {
     // Ignore scroll events during programmatic scroll
     if (isScrollingToBottom.current) return;
 
@@ -902,10 +952,10 @@ function App() {
     } else {
       setShowScrollButton(true);
     }
-  }, []);
+  };
 
   // Scroll to bottom handler
-  const scrollToBottom = useCallback(() => {
+  const scrollToBottom = () => {
     isScrollingToBottom.current = true;
     setIsUserScrolled(false);
     setShowScrollButton(false);
@@ -914,16 +964,16 @@ function App() {
     setTimeout(() => {
       isScrollingToBottom.current = false;
     }, 500);
-  }, []);
+  };
 
   // Helper to insert a new conversation after well-known ones
-  const insertConversation = useCallback((prev, newConv) => {
+  const insertConversation = (prev, newConv) => {
     const wellKnownCount = prev.filter((c) => c.isWellKnown).length;
     return [...prev.slice(0, wellKnownCount), newConv, ...prev.slice(wellKnownCount)];
-  }, []);
+  };
 
   // Start a new conversation
-  const handleNewConversation = useCallback(async () => {
+  const handleNewConversation = async () => {
     try {
       // Create conversation on server
       const res = await fetch('/api/conversations', {
@@ -968,10 +1018,10 @@ function App() {
       // Navigate to the new conversation URL
       navigate(`/chat/${encodeURIComponent(newId)}`, { replace: true });
     }
-  }, [sendMessage, insertConversation, navigate]);
+  };
 
   // Delete conversation (soft delete)
-  const handleDeleteConversation = useCallback(async (convId, e) => {
+  const handleDeleteConversation = async (convId, e) => {
     e.stopPropagation(); // Prevent selecting the conversation
     setOpenMenuId(null);
 
@@ -1012,10 +1062,10 @@ function App() {
     } catch (error) {
       console.error('Failed to delete conversation:', error);
     }
-  }, [conversations, currentConversationId, navigate, transformMessages]);
+  };
 
   // Start inline rename
-  const handleRenameConversation = useCallback((convId, e) => {
+  const handleRenameConversation = (convId, e) => {
     e.stopPropagation();
     setOpenMenuId(null);
 
@@ -1024,12 +1074,15 @@ function App() {
 
     setEditingConversationId(convId);
     setEditingTitle(conversation.title);
-    // Focus the input after render
-    setTimeout(() => renameInputRef.current?.focus(), 0);
-  }, [conversations]);
+    // Focus and select the input text after render
+    setTimeout(() => {
+      renameInputRef.current?.focus();
+      renameInputRef.current?.select();
+    }, 0);
+  };
 
   // Save the rename
-  const handleSaveRename = useCallback(async () => {
+  const handleSaveRename = async () => {
     if (!editingConversationId) return;
 
     const originalConv = conversations.find((c) => c.id === editingConversationId);
@@ -1065,16 +1118,16 @@ function App() {
 
     setEditingConversationId(null);
     setEditingTitle('');
-  }, [editingConversationId, editingTitle, conversations]);
+  };
 
   // Cancel the rename
-  const handleCancelRename = useCallback(() => {
+  const handleCancelRename = () => {
     setEditingConversationId(null);
     setEditingTitle('');
-  }, []);
+  };
 
   // Handle keydown in rename input
-  const handleRenameKeyDown = useCallback((e) => {
+  const handleRenameKeyDown = (e) => {
     if (e.key === 'Enter') {
       e.preventDefault();
       handleSaveRename();
@@ -1082,13 +1135,13 @@ function App() {
       e.preventDefault();
       handleCancelRename();
     }
-  }, [handleSaveRename, handleCancelRename]);
+  };
 
   // Toggle actions menu
-  const toggleActionsMenu = useCallback((convId, e) => {
+  const toggleActionsMenu = (convId, e) => {
     e.stopPropagation(); // Prevent selecting the conversation
     setOpenMenuId((prev) => (prev === convId ? null : convId));
-  }, []);
+  };
 
   // Close menu when clicking outside
   useEffect(() => {
@@ -1099,17 +1152,9 @@ function App() {
     }
   }, [openMenuId]);
 
-  // Close hashtag menu when clicking outside
-  useEffect(() => {
-    const handleClickOutside = () => setHashtagMenuOpen(false);
-    if (hashtagMenuOpen) {
-      document.addEventListener('click', handleClickOutside);
-      return () => document.removeEventListener('click', handleClickOutside);
-    }
-  }, [hashtagMenuOpen]);
 
   // Switch conversation - navigates to the conversation URL
-  const handleSelectConversation = useCallback((convId) => {
+  const handleSelectConversation = (convId) => {
     if (convId === currentConversationId) return;
 
     // Mark that we're navigating to prevent URL sync effect from re-triggering
@@ -1131,11 +1176,26 @@ function App() {
       .then(res => res.ok ? res.json() : [])
       .then(data => setMessages(transformMessages(data)))
       .catch(() => setMessages([]));
-  }, [currentConversationId, navigate, transformMessages]);
+  };
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    if (!input.trim() && attachments.length === 0) return;
+  // Handle chat submission - receives input text from ChatInput component
+  // Uses refs to avoid dependencies that would cause callback recreation
+  const attachmentsRef = useRef(attachments);
+  const reasoningModeRef = useRef(reasoningMode);
+  const messageTypeRef = useRef(messageType);
+
+  // Keep refs in sync (currentConversationIdRef is already synced above)
+  useEffect(() => { attachmentsRef.current = attachments; }, [attachments]);
+  useEffect(() => { reasoningModeRef.current = reasoningMode; }, [reasoningMode]);
+  useEffect(() => { messageTypeRef.current = messageType; }, [messageType]);
+
+  const handleSubmit = useCallback(async (inputText) => {
+    const currentAttachments = attachmentsRef.current;
+    const currentReasoningMode = reasoningModeRef.current;
+    const currentMessageType = messageTypeRef.current;
+    const convId = currentConversationIdRef.current;
+
+    if (!inputText.trim() && currentAttachments.length === 0) return;
 
     // If user is near the bottom when sending, re-enable auto-scroll
     const container = messagesContainerRef.current;
@@ -1149,7 +1209,7 @@ function App() {
 
     // Process attachments to base64
     const processedAttachments = await Promise.all(
-      attachments.map(async (file) => {
+      currentAttachments.map(async (file) => {
         const base64 = await fileToBase64(file);
         return {
           name: file.name,
@@ -1170,31 +1230,29 @@ function App() {
     const userMessage = {
       id: messageId,
       role: 'user',
-      content: input,
-      attachments: attachments.map(f => ({ name: f.name, type: f.type, size: f.size })),
+      content: inputText,
+      attachments: currentAttachments.map(f => ({ name: f.name, type: f.type, size: f.size })),
       timestamp: new Date().toISOString(),
-      reasoningMode: reasoningMode, // Track reasoning mode used for this message
-      messageType: messageType, // Track message type (e.g., deep_research)
+      reasoningMode: currentReasoningMode,
+      messageType: currentMessageType,
     };
     setMessages((prev) => [...prev, userMessage]);
 
     // Send via WebSocket with conversation ID, attachments, reasoning effort, and message type
-    // Include messageId for server-side deduplication
     sendMessage({
       type: 'message',
-      messageId: messageId, // For deduplication on server
-      content: input,
+      messageId: messageId,
+      content: inputText,
       attachments: processedAttachments,
-      conversationId: currentConversationId,
-      reasoningEffort: reasoningMode,
-      messageType: messageType, // e.g., 'deep_research'
+      conversationId: convId,
+      reasoningEffort: currentReasoningMode,
+      messageType: currentMessageType,
     });
-    setInput('');
     setAttachments([]);
     setReasoningMode(null);
     setMessageType(null);
     setIsResponsePending(true);
-  };
+  }, [sendMessage]);
 
   // Convert file to base64
   const fileToBase64 = (file) => {
@@ -1210,22 +1268,22 @@ function App() {
   };
 
   // Handle file drop
-  const handleDrop = useCallback((e) => {
+  const handleDrop = (e) => {
     e.preventDefault();
     setIsDragOver(false);
     const files = Array.from(e.dataTransfer.files);
     setAttachments((prev) => [...prev, ...files]);
-  }, []);
+  };
 
-  const handleDragOver = useCallback((e) => {
+  const handleDragOver = (e) => {
     e.preventDefault();
     setIsDragOver(true);
-  }, []);
+  };
 
-  const handleDragLeave = useCallback((e) => {
+  const handleDragLeave = (e) => {
     e.preventDefault();
     setIsDragOver(false);
-  }, []);
+  };
 
   // Handle paste - extract images from clipboard
   const handlePaste = useCallback((e) => {
@@ -1254,136 +1312,12 @@ function App() {
     setAttachments((prev) => prev.filter((_, i) => i !== index));
   }, []);
 
-  // Handle input change - detect # trigger for hashtag menu (reasoning modes + deep research)
-  const handleInputChange = useCallback((e) => {
-    const newValue = e.target.value;
-    const cursorPos = e.target.selectionStart;
-
-    // Check if user just typed # at start or after a space
-    // Show menu for: Deep Research (always available) or reasoning modes (if supported)
-    if (newValue.length > input.length) {
-      const charJustTyped = newValue[cursorPos - 1];
-      const charBefore = cursorPos > 1 ? newValue[cursorPos - 2] : '';
-
-      if (charJustTyped === '#' && (cursorPos === 1 || charBefore === ' ' || charBefore === '\n')) {
-        // Calculate position for menu
-        const textarea = textareaRef.current;
-        if (textarea) {
-          const rect = textarea.getBoundingClientRect();
-          setHashtagMenuPosition({
-            top: rect.top - 8, // Position above the textarea
-            left: rect.left + 12,
-          });
-          setHashtagMenuOpen(true);
-          setHashtagMenuIndex(0);
-        }
-      }
-    }
-
-    setInput(newValue);
-  }, [input]);
-
-  // Handle reasoning mode selection
-  const handleSelectReasoningMode = useCallback((mode) => {
-    setReasoningMode(mode);
-    setHashtagMenuOpen(false);
-    // Remove the # from input
-    const cursorPos = textareaRef.current?.selectionStart || 0;
-    setInput(prev => {
-      // Find the # before cursor and remove it
-      const before = prev.slice(0, cursorPos);
-      const after = prev.slice(cursorPos);
-      const hashIndex = before.lastIndexOf('#');
-      if (hashIndex >= 0) {
-        return before.slice(0, hashIndex) + after;
-      }
-      return prev;
-    });
-    textareaRef.current?.focus();
-  }, []);
-
-  // Handle message type selection (e.g., deep research)
-  const handleSelectMessageType = useCallback((type) => {
-    setMessageType(type);
-    setHashtagMenuOpen(false);
-    // Remove the # from input
-    const cursorPos = textareaRef.current?.selectionStart || 0;
-    setInput(prev => {
-      // Find the # before cursor and remove it
-      const before = prev.slice(0, cursorPos);
-      const after = prev.slice(cursorPos);
-      const hashIndex = before.lastIndexOf('#');
-      if (hashIndex >= 0) {
-        return before.slice(0, hashIndex) + after;
-      }
-      return prev;
-    });
-    textareaRef.current?.focus();
-  }, []);
-
-  // Build available hashtag menu options
-  const hashtagMenuOptions = useMemo(() => {
-    const options = [];
-    // Deep Research is always available
-    options.push({ id: 'deep_research', type: 'messageType', icon: '🔬', label: 'Deep Research', desc: 'Comprehensive multi-source research' });
-    // Add reasoning modes if available
-    if (modelCapabilities.reasoningEfforts?.includes('high')) {
-      options.push({ id: 'high', type: 'reasoningMode', icon: '🧠', label: 'Think', desc: 'High effort reasoning' });
-    }
-    if (modelCapabilities.reasoningEfforts?.includes('xhigh')) {
-      options.push({ id: 'xhigh', type: 'reasoningMode', icon: '🧠', label: 'Think+', desc: 'Maximum effort reasoning' });
-    }
-    return options;
-  }, [modelCapabilities.reasoningEfforts]);
-
-  // Handle hashtag menu item selection
-  const handleHashtagMenuSelect = useCallback((option) => {
-    if (option.type === 'messageType') {
-      handleSelectMessageType(option.id);
-    } else if (option.type === 'reasoningMode') {
-      handleSelectReasoningMode(option.id);
-    }
-  }, [handleSelectMessageType, handleSelectReasoningMode]);
-
-  // Handle textarea key down (submit on Enter, newline on Shift+Enter)
-  const handleKeyDown = useCallback((e) => {
-    // Handle hashtag menu navigation
-    if (hashtagMenuOpen) {
-      const optionCount = hashtagMenuOptions.length;
-      if (e.key === 'ArrowDown') {
-        e.preventDefault();
-        setHashtagMenuIndex(prev => Math.min(prev + 1, optionCount - 1));
-        return;
-      } else if (e.key === 'ArrowUp') {
-        e.preventDefault();
-        setHashtagMenuIndex(prev => Math.max(prev - 1, 0));
-        return;
-      } else if (e.key === 'Enter') {
-        e.preventDefault();
-        if (hashtagMenuOptions[hashtagMenuIndex]) {
-          handleHashtagMenuSelect(hashtagMenuOptions[hashtagMenuIndex]);
-        }
-        return;
-      } else if (e.key === 'Escape') {
-        e.preventDefault();
-        setHashtagMenuOpen(false);
-        return;
-      }
-    }
-
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      if (input.trim() || attachments.length > 0) {
-        handleSubmit(e);
-      }
-    }
-  }, [input, attachments, hashtagMenuOpen, hashtagMenuIndex, hashtagMenuOptions, handleHashtagMenuSelect]);
-
   const handleAction = (action, data) => {
     sendMessage({ type: 'action', action, data, conversationId: currentConversationId });
   };
 
   const handleInteractionResponse = (response) => {
+    if (!pendingInteraction) return;
     sendMessage({
       type: 'interaction-response',
       requestId: pendingInteraction.id,
@@ -1394,7 +1328,7 @@ function App() {
   };
 
   // Run a task immediately
-  const handleRunTask = useCallback(async (taskId) => {
+  const handleRunTask = async (taskId) => {
     try {
       const res = await fetch(`/api/tasks/${taskId}/run`, {
         method: 'POST',
@@ -1415,7 +1349,7 @@ function App() {
     } catch (error) {
       console.error('Error running task:', error);
     }
-  }, [currentConversationId]);
+  };
 
   // Helper to check if a value is a data URL image
   const isDataUrlImage = (value) => {
@@ -1513,7 +1447,7 @@ function App() {
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   };
 
-  // Toggle accordion
+  // Toggle accordion - memoized since it only uses state setter
   const toggleAccordion = useCallback((key) => {
     setExpandedAccordions((prev) => ({
       ...prev,
@@ -1522,7 +1456,7 @@ function App() {
   }, []);
 
   // Format tool tooltip with description and inputs
-  const formatToolTooltip = useCallback((tool) => {
+  const formatToolTooltip = (tool) => {
     let tooltip = tool.description || tool.name;
     if (tool.inputs && tool.inputs.length > 0) {
       tooltip += '\n\nInputs:';
@@ -1535,10 +1469,10 @@ function App() {
       }
     }
     return tooltip;
-  }, []);
+  };
 
   // Toggle tool event expansion
-  const toggleToolExpand = useCallback((toolId) => {
+  const toggleToolExpand = (toolId) => {
     setExpandedTools((prev) => {
       const newSet = new Set(prev);
       if (newSet.has(toolId)) {
@@ -1548,10 +1482,10 @@ function App() {
       }
       return newSet;
     });
-  }, []);
+  };
 
   // Toggle agent message expansion (for messages that collapse by default)
-  const toggleAgentMessageExpand = useCallback((msgId) => {
+  const toggleAgentMessageExpand = (msgId) => {
     setExpandedAgentMessages((prev) => {
       const newSet = new Set(prev);
       if (newSet.has(msgId)) {
@@ -1561,7 +1495,7 @@ function App() {
       }
       return newSet;
     });
-  }, []);
+  };
 
   // Format date for conversation list
   const formatDate = (dateStr) => {
@@ -1575,7 +1509,7 @@ function App() {
     return date.toLocaleDateString();
   };
 
-  // Eval mode handlers - memoized to prevent EvalSidebar re-renders
+  // Eval mode handlers - memoized for EvalSidebar/EvalRunner
   const handleSelectEvaluation = useCallback((evaluation) => {
     if (evaluation) {
       navigate(`/eval/${encodeURIComponent(evaluation.path)}`);
@@ -1604,7 +1538,7 @@ function App() {
     navigate('/eval');
   }, [navigate]);
 
-  // Handle browser session selection
+  // Handle browser session selection - memoized
   const handleSelectBrowserSession = useCallback((sessionId) => {
     setSelectedBrowserSessionId(sessionId);
   }, []);
@@ -1614,7 +1548,7 @@ function App() {
     setSelectedBrowserSessionId(null);
   }, []);
 
-  // Close browser session (terminate the browser process)
+  // Close browser session (terminate the browser process) - memoized
   const handleCloseBrowserSession = useCallback((sessionId) => {
     // Optimistically remove from UI immediately
     setBrowserSessions((prev) => prev.filter((s) => s.id !== sessionId));
@@ -1623,29 +1557,29 @@ function App() {
       delete next[sessionId];
       return next;
     });
-    if (selectedBrowserSessionId === sessionId) {
-      setSelectedBrowserSessionId(null);
-    }
+    // Use functional update to check selected session without dependency
+    setSelectedBrowserSessionId((prev) => prev === sessionId ? null : prev);
     // Send close request to server
     sendMessage({ type: 'browser-action', action: 'close', sessionId });
-  }, [sendMessage, selectedBrowserSessionId]);
+  }, [sendMessage]);
 
-  // Toggle browser sessions accordion - memoized to prevent BrowserSessions re-render
+  // Toggle browser sessions accordion - memoized
   const handleToggleBrowserSessions = useCallback(() => {
     toggleAccordion('browserSessions');
   }, [toggleAccordion]);
 
-  // Toggle RAG projects accordion
+  // Toggle RAG projects accordion - memoized
   const handleToggleRagProjects = useCallback(() => {
     toggleAccordion('ragProjects');
   }, [toggleAccordion]);
 
-  // Handle RAG project indexing (force=true for full re-index)
+  // Handle RAG project indexing (force=true for full re-index) - memoized
   const handleIndexProject = useCallback(async (projectId, force = false) => {
+    let url = '/api/rag/projects/' + projectId + '/index';
+    if (force) {
+      url = url + '?force=true';
+    }
     try {
-      const url = force
-        ? `/api/rag/projects/${projectId}/index?force=true`
-        : `/api/rag/projects/${projectId}/index`;
       const res = await fetch(url, {
         method: 'POST',
       });
@@ -1658,13 +1592,13 @@ function App() {
     }
   }, []);
 
-  // Handle file upload to RAG project via drag-and-drop
+  // Handle file upload to RAG project via drag-and-drop - memoized
   const handleUploadToProject = useCallback(async (projectId, files) => {
+    const formData = new FormData();
+    for (let i = 0; i < files.length; i++) {
+      formData.append('files', files[i]);
+    }
     try {
-      const formData = new FormData();
-      for (const file of files) {
-        formData.append('files', file);
-      }
       const res = await fetch(`/api/rag/projects/${projectId}/upload?index=true`, {
         method: 'POST',
         body: formData,
@@ -1986,28 +1920,36 @@ function App() {
                       )}
 
                       {/* MCP Tools by Server */}
-                      {Object.entries(tools.mcp).map(([serverName, serverTools]) => (
-                        <div key={serverName} className="tool-group">
-                          <button
-                            className={`tool-group-header ${expandedToolGroups[`mcp_${serverName}`] ? 'expanded' : ''}`}
-                            onClick={() => setExpandedToolGroups(prev => ({ ...prev, [`mcp_${serverName}`]: !prev[`mcp_${serverName}`] }))}
-                          >
-                            <span className="tool-group-arrow">{expandedToolGroups[`mcp_${serverName}`] ? '▼' : '▶'}</span>
-                            <span className="tool-group-icon">🔌</span>
-                            <span className="tool-group-name">MCP: {serverName}</span>
-                            <span className="tool-group-count">{serverTools.length}</span>
-                          </button>
-                          {expandedToolGroups[`mcp_${serverName}`] && (
-                            <div className="tool-group-items">
-                              {serverTools.map((tool) => (
-                                <div key={tool.name} className="tool-item" title={formatToolTooltip(tool)}>
-                                  <span className="tool-name">{tool.name}</span>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      ))}
+                      {Object.entries(tools.mcp).map(([serverName, serverTools]) => {
+                        const groupKey = 'mcp_' + serverName;
+                        const isExpanded = expandedToolGroups[groupKey];
+                        return (
+                          <div key={serverName} className="tool-group">
+                            <button
+                              className={`tool-group-header ${isExpanded ? 'expanded' : ''}`}
+                              onClick={() => setExpandedToolGroups(prev => {
+                                const updated = { ...prev };
+                                updated[groupKey] = !prev[groupKey];
+                                return updated;
+                              })}
+                            >
+                              <span className="tool-group-arrow">{isExpanded ? '▼' : '▶'}</span>
+                              <span className="tool-group-icon">🔌</span>
+                              <span className="tool-group-name">MCP: {serverName}</span>
+                              <span className="tool-group-count">{serverTools.length}</span>
+                            </button>
+                            {isExpanded && (
+                              <div className="tool-group-items">
+                                {serverTools.map((tool) => (
+                                  <div key={tool.name} className="tool-item" title={formatToolTooltip(tool)}>
+                                    <span className="tool-name">{tool.name}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
                     </>
                   )}
                 </div>
@@ -2399,111 +2341,26 @@ function App() {
         )}
         </main>
 
-        <footer className="input-container">
-          <form onSubmit={handleSubmit}>
-            <div
-              className={`input-wrapper ${isDragOver ? 'drag-over' : ''}`}
-              onDrop={handleDrop}
-              onDragOver={handleDragOver}
-              onDragLeave={handleDragLeave}
-            >
-              {/* Chips bar - show if attachments OR reasoning mode */}
-              {(attachments.length > 0 || reasoningMode || messageType) && (
-                <div className="attachments-bar">
-                  {/* Attachment chips first */}
-                  {attachments.map((file, index) => (
-                    <div key={index} className="attachment-chip">
-                      <span className="attachment-icon">
-                        {file.type.startsWith('image/') ? '🖼️' : '📎'}
-                      </span>
-                      <span className="attachment-name" title={file.name}>
-                        {file.name.length > 20 ? file.name.slice(0, 17) + '...' : file.name}
-                      </span>
-                      <button
-                        type="button"
-                        className="attachment-remove"
-                        onClick={() => removeAttachment(index)}
-                        title="Remove attachment"
-                      >
-                        ×
-                      </button>
-                    </div>
-                  ))}
-
-                  {/* Message type chip (e.g., Deep Research) */}
-                  {messageType && (
-                    <div className="hashtag-chip hashtag-chip-research">
-                      <span className="hashtag-chip-icon">🔬</span>
-                      <span className="hashtag-chip-label">
-                        {messageType === 'deep_research' ? 'Deep Research' : messageType}
-                      </span>
-                      <button
-                        type="button"
-                        className="hashtag-chip-remove"
-                        onClick={() => setMessageType(null)}
-                        title="Remove message type"
-                      >
-                        ×
-                      </button>
-                    </div>
-                  )}
-
-                  {/* Reasoning mode chip, accent color */}
-                  {reasoningMode && (
-                    <div className="hashtag-chip">
-                      <span className="hashtag-chip-icon">🧠</span>
-                      <span className="hashtag-chip-label">
-                        {reasoningMode === 'xhigh' ? 'Think+' : 'Think'}
-                      </span>
-                      <button
-                        type="button"
-                        className="hashtag-chip-remove"
-                        onClick={() => setReasoningMode(null)}
-                        title="Remove reasoning mode"
-                      >
-                        ×
-                      </button>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Hashtag context menu */}
-              {hashtagMenuOpen && hashtagMenuOptions.length > 0 && (
-                <div
-                  className="hashtag-menu"
-                  style={{ top: hashtagMenuPosition.top, left: hashtagMenuPosition.left }}
-                >
-                  {hashtagMenuOptions.map((option, index) => (
-                    <button
-                      key={option.id}
-                      type="button"
-                      className={`hashtag-menu-item ${hashtagMenuIndex === index ? 'selected' : ''}`}
-                      onClick={() => handleHashtagMenuSelect(option)}
-                      onMouseEnter={() => setHashtagMenuIndex(index)}
-                    >
-                      <span>{option.icon} {option.label}</span>
-                      <span className="hashtag-menu-item-desc">{option.desc}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
-
-              <textarea
-                ref={textareaRef}
-                value={input}
-                onChange={handleInputChange}
-                onKeyDown={handleKeyDown}
-                onPaste={handlePaste}
-                placeholder={isResponsePending ? "Waiting for response..." : "Type a message... (Shift + Enter for new line)"}
-                disabled={!isConnected || isResponsePending}
-                rows={3}
-              />
-            </div>
-            <button type="submit" disabled={!isConnected || isResponsePending || (!input.trim() && attachments.length === 0)}>
-              {isResponsePending ? 'Waiting...' : 'Send'}
-            </button>
-          </form>
+        <footer
+          className={`input-container ${isDragOver ? 'drag-over' : ''}`}
+          onDrop={handleDrop}
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+        >
+          <ChatInput
+            ref={chatInputRef}
+            onSubmit={handleSubmit}
+            onPaste={handlePaste}
+            attachments={attachments}
+            onRemoveAttachment={removeAttachment}
+            isConnected={isConnected}
+            isResponsePending={isResponsePending}
+            reasoningMode={reasoningMode}
+            messageType={messageType}
+            onReasoningModeChange={setReasoningMode}
+            onMessageTypeChange={setMessageType}
+            modelCapabilities={modelCapabilities}
+          />
         </footer>
         </>
         )}

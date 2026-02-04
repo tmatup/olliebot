@@ -5,13 +5,13 @@
  * Overlays click markers for visualization.
  */
 
-import React from 'react';
+import React, { memo } from 'react';
 import { ClickOverlay } from './ClickOverlay';
 
 /**
  * Browser preview modal component.
  */
-export function BrowserPreview({
+export const BrowserPreview = memo(function BrowserPreview({
   session,
   screenshot,
   clickMarkers = [],
@@ -101,7 +101,7 @@ export function BrowserPreview({
       </div>
     </div>
   );
-}
+});
 
 /**
  * Formats timestamp for display.

@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useCallback } from 'react';
+import { createContext, useContext, useState } from 'react';
 
 // Available modes
 export const MODES = {
@@ -11,8 +11,8 @@ const ModeContext = createContext(null);
 export function ModeProvider({ children }) {
   const [mode, setMode] = useState(MODES.CHAT);
 
-  const switchToChat = useCallback(() => setMode(MODES.CHAT), []);
-  const switchToEval = useCallback(() => setMode(MODES.EVAL), []);
+  const switchToChat = () => setMode(MODES.CHAT);
+  const switchToEval = () => setMode(MODES.EVAL);
 
   const value = {
     mode,

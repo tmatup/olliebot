@@ -1,9 +1,10 @@
-import React, { memo, useState, useCallback } from 'react';
+import React, { useState, memo } from 'react';
 
 /**
  * RAG Projects Accordion
  * Displays a list of RAG projects from user/rag/ with indexing controls.
  * Supports drag-and-drop file upload to projects.
+ * Memoized with custom comparison to prevent unnecessary re-renders.
  */
 const RAGProjects = memo(function RAGProjects({
   projects = [],
@@ -18,21 +19,21 @@ const RAGProjects = memo(function RAGProjects({
   const [uploadingProjectId, setUploadingProjectId] = useState(null);
 
   // Handle drag over on a project item
-  const handleDragOver = useCallback((e, projectId) => {
+  const handleDragOver = (e, projectId) => {
     e.preventDefault();
     e.stopPropagation();
     setDragOverProjectId(projectId);
-  }, []);
+  };
 
   // Handle drag leave
-  const handleDragLeave = useCallback((e) => {
+  const handleDragLeave = (e) => {
     e.preventDefault();
     e.stopPropagation();
     setDragOverProjectId(null);
-  }, []);
+  };
 
   // Handle file drop
-  const handleDrop = useCallback(async (e, projectId) => {
+  const handleDrop = async (e, projectId) => {
     e.preventDefault();
     e.stopPropagation();
     setDragOverProjectId(null);
@@ -45,10 +46,11 @@ const RAGProjects = memo(function RAGProjects({
     setUploadingProjectId(projectId);
     try {
       await onUpload(projectId, files);
-    } finally {
-      setUploadingProjectId(null);
+    } catch {
+      // Error handling done in parent
     }
-  }, [onUpload]);
+    setUploadingProjectId(null);
+  };
   return (
     <div className="accordion">
       <button
@@ -144,6 +146,15 @@ const RAGProjects = memo(function RAGProjects({
         </div>
       )}
     </div>
+  );
+}, (prevProps, nextProps) => {
+  return (
+    prevProps.projects === nextProps.projects &&
+    prevProps.indexingProgress === nextProps.indexingProgress &&
+    prevProps.expanded === nextProps.expanded &&
+    prevProps.onToggle === nextProps.onToggle &&
+    prevProps.onIndex === nextProps.onIndex &&
+    prevProps.onUpload === nextProps.onUpload
   );
 });
 

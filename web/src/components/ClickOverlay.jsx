@@ -5,7 +5,7 @@
  * Shows where click actions occurred during automation.
  */
 
-import React from 'react';
+import React, { memo } from 'react';
 
 /**
  * Action type colors
@@ -19,7 +19,7 @@ const ACTION_COLORS = {
 /**
  * Click overlay component that renders markers over the screenshot.
  */
-export function ClickOverlay({ markers = [], viewportSize }) {
+export const ClickOverlay = memo(function ClickOverlay({ markers = [], viewportSize }) {
   if (!viewportSize || markers.length === 0) {
     return null;
   }
@@ -52,6 +52,6 @@ export function ClickOverlay({ markers = [], viewportSize }) {
       })}
     </div>
   );
-}
+});
 
 export default ClickOverlay;

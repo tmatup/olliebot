@@ -21,7 +21,7 @@ const STATUS_COLORS = {
 
 /**
  * Browser Sessions accordion component.
- * Memoized to prevent unnecessary re-renders from parent state changes.
+ * Memoized to prevent re-renders when parent re-renders with same props.
  */
 export const BrowserSessions = memo(function BrowserSessions({
   sessions = [],
@@ -119,6 +119,17 @@ export const BrowserSessions = memo(function BrowserSessions({
         </div>
       )}
     </div>
+  );
+}, (prevProps, nextProps) => {
+  // Custom comparison - check each prop for equality
+  return (
+    prevProps.sessions === nextProps.sessions &&
+    prevProps.screenshots === nextProps.screenshots &&
+    prevProps.selectedSessionId === nextProps.selectedSessionId &&
+    prevProps.onSelectSession === nextProps.onSelectSession &&
+    prevProps.onCloseSession === nextProps.onCloseSession &&
+    prevProps.expanded === nextProps.expanded &&
+    prevProps.onToggle === nextProps.onToggle
   );
 });
 

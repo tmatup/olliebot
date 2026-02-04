@@ -1,4 +1,4 @@
-import { useState, useEffect, memo, useCallback } from 'react';
+import { useState, useEffect, memo } from 'react';
 
 export const EvalSidebar = memo(function EvalSidebar({
   onSelectEvaluation,
@@ -17,10 +17,6 @@ export const EvalSidebar = memo(function EvalSidebar({
     results: false,
   });
 
-  useEffect(() => {
-    loadData();
-  }, []);
-
   const loadData = async () => {
     setLoading(true);
     try {
@@ -31,39 +27,57 @@ export const EvalSidebar = memo(function EvalSidebar({
 
       if (suitesRes.ok) {
         const data = await suitesRes.json();
-        setSuites(data.suites || []);
+        const suitesData = data.suites;
+        if (suitesData) {
+          setSuites(suitesData);
+        } else {
+          setSuites([]);
+        }
         // Auto-expand first suite if none expanded
-        if (data.suites?.length > 0 && Object.keys(expandedSuites).length === 0) {
-          setExpandedSuites({ [data.suites[0].id]: true });
+        if (suitesData) {
+          if (suitesData.length > 0) {
+            const noExpandedYet = Object.keys(expandedSuites).length === 0;
+            if (noExpandedYet) {
+              setExpandedSuites({ [suitesData[0].id]: true });
+            }
+          }
         }
       }
 
       if (resultsRes.ok) {
         const data = await resultsRes.json();
-        setRecentResults(data.results || []);
+        const resultsData = data.results;
+        if (resultsData) {
+          setRecentResults(resultsData);
+        } else {
+          setRecentResults([]);
+        }
       }
     } catch (error) {
       console.error('Failed to load evaluations:', error);
-    } finally {
-      setLoading(false);
     }
+    setLoading(false);
   };
 
-  const toggleSection = useCallback((section) => {
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  const toggleSection = (section) => {
     setExpandedSections(prev => ({
       ...prev,
       [section]: !prev[section],
     }));
-  }, []);
+  };
 
-  const toggleSuite = useCallback((suiteId) => {
+  const toggleSuite = (suiteId) => {
     setExpandedSuites(prev => ({
       ...prev,
       [suiteId]: !prev[suiteId],
     }));
-  }, []);
+  };
 
-  const handleSuiteClick = useCallback((suite, e) => {
+  const handleSuiteClick = (suite, e) => {
     // If clicking the expand icon, just toggle
     if (e.target.classList.contains('suite-expand-icon')) {
       setExpandedSuites(prev => ({
@@ -78,9 +92,9 @@ export const EvalSidebar = memo(function EvalSidebar({
       ...prev,
       [suite.id]: true,
     }));
-  }, [onSelectSuite]);
+  };
 
-  const handleDeleteResult = useCallback(async (result, e) => {
+  const handleDeleteResult = async (result, e) => {
     e.stopPropagation();
 
     if (!confirm(`Delete result for "${result.evaluationName}"?`)) {
@@ -96,8 +110,14 @@ export const EvalSidebar = memo(function EvalSidebar({
         // Remove from local state
         setRecentResults(prev => prev.filter(r => r.filePath !== result.filePath));
         // Clear selection if this was the selected result
-        if (selectedResult?.filePath === result.filePath) {
-          onSelectResult?.(null);
+        let selectedPath = null;
+        if (selectedResult) {
+          selectedPath = selectedResult.filePath;
+        }
+        if (selectedPath === result.filePath) {
+          if (onSelectResult) {
+            onSelectResult(null);
+          }
         }
       } else {
         console.error('Failed to delete result');
@@ -105,7 +125,7 @@ export const EvalSidebar = memo(function EvalSidebar({
     } catch (error) {
       console.error('Failed to delete result:', error);
     }
-  }, [selectedResult, onSelectResult]);
+  };
 
   // Count total evaluations across all suites
   const totalEvaluations = suites.reduce((sum, suite) => sum + (suite.evaluations?.length || 0), 0);
@@ -238,5 +258,13 @@ export const EvalSidebar = memo(function EvalSidebar({
       </div>
       </div>
     </div>
+  );
+}, (prevProps, nextProps) => {
+  // Custom comparison - only re-render when value props change
+  // Callbacks are not compared since they may have new references but same behavior
+  return (
+    prevProps.selectedEvaluation === nextProps.selectedEvaluation &&
+    prevProps.selectedSuite === nextProps.selectedSuite &&
+    prevProps.selectedResult === nextProps.selectedResult
   );
 });

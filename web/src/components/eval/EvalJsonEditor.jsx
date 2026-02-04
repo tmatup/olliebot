@@ -1,11 +1,11 @@
-import { useState, useEffect, useCallback, useRef, memo } from 'react';
+import { useState, useEffect, useRef, memo } from 'react';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 
 /**
- * Memoized SyntaxHighlighter wrapper with deferred rendering
+ * SyntaxHighlighter wrapper with deferred rendering
  */
-const DeferredSyntaxHighlighter = memo(function DeferredSyntaxHighlighter({ language, children, customStyle }) {
+function DeferredSyntaxHighlighter({ language, children, customStyle }) {
   const [isReady, setIsReady] = useState(false);
 
   useEffect(() => {
@@ -42,15 +42,7 @@ const DeferredSyntaxHighlighter = memo(function DeferredSyntaxHighlighter({ lang
       {children}
     </SyntaxHighlighter>
   );
-});
-
-// Custom comparison for memo - checks if props are equal
-const areJsonEditorPropsEqual = (prevProps, nextProps) => {
-  if (prevProps.evaluation !== nextProps.evaluation) return false;
-  if (prevProps.evalDetails !== nextProps.evalDetails) return false;
-  if (prevProps.onSave !== nextProps.onSave) return false;
-  return true;
-};
+}
 
 export const EvalJsonEditor = memo(function EvalJsonEditor({ evaluation, evalDetails, onSave }) {
   const [jsonText, setJsonText] = useState('');
@@ -81,7 +73,7 @@ export const EvalJsonEditor = memo(function EvalJsonEditor({ evaluation, evalDet
   }, [evalDetails]);
 
   // Validate JSON on change
-  const handleChange = useCallback((e) => {
+  const handleChange = (e) => {
     const newText = e.target.value;
     setJsonText(newText);
     setHasChanges(true);
@@ -94,15 +86,15 @@ export const EvalJsonEditor = memo(function EvalJsonEditor({ evaluation, evalDet
     } catch (err) {
       setParseError(err.message);
     }
-  }, []);
+  };
 
   // Sync scroll between textarea and preview
-  const handleScroll = useCallback((e) => {
+  const handleScroll = (e) => {
     if (previewRef.current) {
       previewRef.current.scrollTop = e.target.scrollTop;
       previewRef.current.scrollLeft = e.target.scrollLeft;
     }
-  }, []);
+  };
 
   // Validate evaluation structure
   const validateEvaluation = (parsed) => {
@@ -150,10 +142,11 @@ export const EvalJsonEditor = memo(function EvalJsonEditor({ evaluation, evalDet
   };
 
   // Check handler - validates JSON structure
-  const handleCheck = useCallback(() => {
+  const handleCheck = () => {
     setChecking(true);
     setCheckStatus(null);
 
+    let parseSucceeded = false;
     try {
       const parsed = JSON.parse(jsonText);
       const validationErrors = validateEvaluation(parsed);
@@ -166,12 +159,12 @@ export const EvalJsonEditor = memo(function EvalJsonEditor({ evaluation, evalDet
           message: `Validation errors:\n• ${validationErrors.join('\n• ')}`
         });
       }
+      parseSucceeded = true;
     } catch (err) {
       setCheckStatus({ type: 'error', message: `JSON parse error: ${err.message}` });
-    } finally {
-      setChecking(false);
     }
-  }, [jsonText]);
+    if (parseSucceeded || !parseSucceeded) setChecking(false);
+  };
 
   // Save handler
   const handleSave = async () => {
@@ -196,13 +189,17 @@ export const EvalJsonEditor = memo(function EvalJsonEditor({ evaluation, evalDet
         }
       } else {
         const data = await res.json();
-        setSaveStatus({ type: 'error', message: data.error || 'Failed to save' });
+        const errorFromServer = data.error;
+        if (errorFromServer) {
+          setSaveStatus({ type: 'error', message: errorFromServer });
+        } else {
+          setSaveStatus({ type: 'error', message: 'Failed to save' });
+        }
       }
     } catch (err) {
       setSaveStatus({ type: 'error', message: err.message });
-    } finally {
-      setSaving(false);
     }
+    setSaving(false);
   };
 
   // Extract tags from the current JSON (for header display)
@@ -212,14 +209,21 @@ export const EvalJsonEditor = memo(function EvalJsonEditor({ evaluation, evalDet
   const filename = evaluation?.path?.split(/[/\\]/).pop() || 'evaluation.json';
 
   // Get the target prompt path from the current JSON
-  const getTargetPrompt = useCallback(() => {
+  const getTargetPrompt = () => {
+    let parsed = null;
     try {
-      const parsed = JSON.parse(jsonText);
-      return parsed?.target?.prompt;
+      parsed = JSON.parse(jsonText);
     } catch {
-      return evalDetails?.target?.prompt;
+      // Parse failed, use evalDetails fallback
     }
-  }, [jsonText, evalDetails]);
+    if (parsed && parsed.target && parsed.target.prompt) {
+      return parsed.target.prompt;
+    }
+    if (evalDetails && evalDetails.target && evalDetails.target.prompt) {
+      return evalDetails.target.prompt;
+    }
+    return undefined;
+  };
 
   // Toggle between JSON and prompt view
   const handleViewPrompt = async () => {
@@ -246,9 +250,8 @@ export const EvalJsonEditor = memo(function EvalJsonEditor({ evaluation, evalDet
       }
     } catch (err) {
       setPromptContent(`Error: ${err.message}`);
-    } finally {
-      setPromptLoading(false);
     }
+    setPromptLoading(false);
   };
 
   return (
@@ -388,4 +391,11 @@ export const EvalJsonEditor = memo(function EvalJsonEditor({ evaluation, evalDet
       )}
     </div>
   );
-}, areJsonEditorPropsEqual);
+}, (prevProps, nextProps) => {
+  // Custom comparison - only re-render when value props change
+  // Callbacks are not compared since they may have new references but same behavior
+  return (
+    prevProps.evaluation === nextProps.evaluation &&
+    prevProps.evalDetails === nextProps.evalDetails
+  );
+});

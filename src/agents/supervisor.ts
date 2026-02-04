@@ -755,8 +755,40 @@ export class SupervisorAgentImpl extends AbstractAgent implements ISupervisorAge
   private ensureConversation(channel: string, firstMessageContent?: string | unknown[]): string {
     const db = getDb();
 
+    // Helper to generate title from message content
+    const generateTitleFromContent = (content: string | unknown[] | undefined): string | null => {
+      if (!content) return null;
+      const textContent = typeof content === 'string'
+        ? content
+        : Array.isArray(content)
+          ? (content as Array<{ type: string; text?: string }>).filter((b) => b.type === 'text').map((b) => b.text).join(' ')
+          : '';
+      if (!textContent) return null;
+      return textContent.substring(0, 30).trim() + (textContent.length > 30 ? '...' : '');
+    };
+
     // If we have a current conversation, update its timestamp and return it
     if (this.currentConversationId) {
+      const conv = db.conversations.findById(this.currentConversationId);
+      // If conversation has default title and we have message content, update the title
+      if (conv && conv.title === 'New Conversation' && !conv.manuallyNamed && firstMessageContent) {
+        const newTitle = generateTitleFromContent(firstMessageContent);
+        if (newTitle) {
+          db.conversations.update(this.currentConversationId, {
+            title: newTitle,
+            updatedAt: new Date().toISOString(),
+          });
+          // Notify frontend about the title update
+          const webChannel = this.channels.get(channel) as WebChannel | undefined;
+          if (webChannel && typeof webChannel.broadcast === 'function') {
+            webChannel.broadcast({
+              type: 'conversation_updated',
+              conversation: { id: this.currentConversationId, title: newTitle, updatedAt: new Date().toISOString() },
+            });
+          }
+          return this.currentConversationId;
+        }
+      }
       db.conversations.update(this.currentConversationId, { updatedAt: new Date().toISOString() });
       return this.currentConversationId;
     }
@@ -766,6 +798,25 @@ export class SupervisorAgentImpl extends AbstractAgent implements ISupervisorAge
 
     if (recentConversation) {
       this.currentConversationId = recentConversation.id;
+      // If recent conversation has default title and we have message content, update the title
+      if (recentConversation.title === 'New Conversation' && !recentConversation.manuallyNamed && firstMessageContent) {
+        const newTitle = generateTitleFromContent(firstMessageContent);
+        if (newTitle) {
+          db.conversations.update(this.currentConversationId, {
+            title: newTitle,
+            updatedAt: new Date().toISOString(),
+          });
+          // Notify frontend about the title update
+          const webChannel = this.channels.get(channel) as WebChannel | undefined;
+          if (webChannel && typeof webChannel.broadcast === 'function') {
+            webChannel.broadcast({
+              type: 'conversation_updated',
+              conversation: { id: this.currentConversationId, title: newTitle, updatedAt: new Date().toISOString() },
+            });
+          }
+          return this.currentConversationId;
+        }
+      }
       db.conversations.update(this.currentConversationId, { updatedAt: new Date().toISOString() });
       return this.currentConversationId;
     }
@@ -773,17 +824,9 @@ export class SupervisorAgentImpl extends AbstractAgent implements ISupervisorAge
     // Create a new conversation
     const id = uuid();
     const now = new Date().toISOString();
-    // Generate temporary title from first message (truncate to 20 chars)
+    // Generate temporary title from first message (truncate to 30 chars)
     // Will be auto-named with a better title after 3 messages
-    // Handle multimodal content by extracting text
-    const textContent = typeof firstMessageContent === 'string'
-      ? firstMessageContent
-      : Array.isArray(firstMessageContent)
-        ? (firstMessageContent as Array<{ type: string; text?: string }>).filter((b) => b.type === 'text').map((b) => b.text).join(' ')
-        : '';
-    const title = textContent
-      ? textContent.substring(0, 20).trim() + (textContent.length > 20 ? '...' : '')
-      : 'New Conversation';
+    const title = generateTitleFromContent(firstMessageContent) || 'New Conversation';
 
     db.conversations.create({
       id,

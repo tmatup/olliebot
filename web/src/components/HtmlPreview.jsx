@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback, memo } from 'react';
+import React, { useState, useEffect, useRef, memo } from 'react';
 import Prism from 'prismjs';
 import 'prismjs/components/prism-markup';
 import 'prismjs/themes/prism-tomorrow.css';
@@ -13,8 +13,6 @@ const HEIGHT_STEP = 100;
  *
  * When isStreaming is true, only raw HTML view is shown to prevent flashing.
  * When streaming ends, it auto-switches to preview mode.
- *
- * Memoized to prevent unnecessary re-renders from parent state changes.
  */
 const HtmlPreview = memo(function HtmlPreview({ html, className = '', isStreaming = false }) {
   const [viewMode, setViewMode] = useState(isStreaming ? 'raw' : 'preview');
@@ -71,7 +69,7 @@ const HtmlPreview = memo(function HtmlPreview({ html, className = '', isStreamin
   }, [viewMode, html, isFullscreen]);
 
   // Helper to write HTML to an iframe and adjust its height to fit content
-  const writeToIframe = useCallback((iframe, htmlContent) => {
+  const writeToIframe = (iframe, htmlContent) => {
     if (!iframe) return;
     const doc = iframe.contentDocument;
     if (doc) {
@@ -119,7 +117,7 @@ const HtmlPreview = memo(function HtmlPreview({ html, className = '', isStreamin
         }
       }, 0);
     }
-  }, []);
+  };
 
   // Update iframe content when in preview mode - only if html actually changed
   // Also write if iframe is empty (e.g., after switching from raw mode or when isReady becomes true)
