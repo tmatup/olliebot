@@ -13,6 +13,14 @@ import type {
 type ContentBlockParam = Anthropic.TextBlockParam | Anthropic.ImageBlockParam | Anthropic.ToolUseBlockParam | Anthropic.ToolResultBlockParam;
 const DEBUG_LLM = ['1', 'true', 'yes', 'on'].includes((process.env.DEBUG_LLM || '').toLowerCase());
 
+/**
+ * Sanitize tool name to match Anthropic's pattern: ^[a-zA-Z0-9_-]{1,128}$
+ * Replaces dots and other invalid characters with underscores.
+ */
+function sanitizeToolName(name: string): string {
+  return name.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 128);
+}
+
 export class AnthropicProvider implements LLMProvider {
   readonly name = 'anthropic';
   readonly model: string;
@@ -131,11 +139,17 @@ export class AnthropicProvider implements LLMProvider {
       : undefined;
     const conversationMessages = this.formatMessagesForApi(messages);
 
-    const tools = options?.tools?.map((t) => ({
-      name: t.name,
-      description: t.description,
-      input_schema: t.input_schema as Anthropic.Tool.InputSchema,
-    }));
+    // Build reverse map: sanitized name -> original name
+    const toolNameMap = new Map<string, string>();
+    const tools = options?.tools?.map((t) => {
+      const sanitized = sanitizeToolName(t.name);
+      toolNameMap.set(sanitized, t.name);
+      return {
+        name: sanitized,
+        description: t.description,
+        input_schema: t.input_schema as Anthropic.Tool.InputSchema,
+      };
+    });
 
     let toolChoice: Anthropic.MessageCreateParams['tool_choice'] | undefined;
     if (options?.toolChoice) {
@@ -144,7 +158,7 @@ export class AnthropicProvider implements LLMProvider {
       } else if (options.toolChoice === 'none') {
         toolChoice = undefined;
       } else if (typeof options.toolChoice === 'object') {
-        toolChoice = { type: 'tool', name: options.toolChoice.name };
+        toolChoice = { type: 'tool', name: sanitizeToolName(options.toolChoice.name) };
       }
     }
 
@@ -210,9 +224,11 @@ export class AnthropicProvider implements LLMProvider {
         }
       } else if (event.type === 'content_block_stop') {
         if (currentToolUse) {
+          // Map sanitized name back to original
+          const originalName = toolNameMap.get(currentToolUse.name) || currentToolUse.name;
           toolUseBlocks.push({
             id: currentToolUse.id,
-            name: currentToolUse.name,
+            name: originalName,
             input: JSON.parse(currentToolUse.inputJson || '{}'),
           });
           currentToolUse = null;
@@ -297,7 +313,7 @@ export class AnthropicProvider implements LLMProvider {
               ...m.toolUse.map((tu) => ({
                 type: 'tool_use' as const,
                 id: tu.id,
-                name: tu.name,
+                name: sanitizeToolName(tu.name),
                 input: tu.input,
               })),
             ],
@@ -323,12 +339,17 @@ export class AnthropicProvider implements LLMProvider {
       : undefined;
     const conversationMessages = this.formatMessagesForApi(messages);
 
-    // Format tools for Anthropic API
-    const tools = options?.tools?.map((t) => ({
-      name: t.name,
-      description: t.description,
-      input_schema: t.input_schema as Anthropic.Tool.InputSchema,
-    }));
+    // Build reverse map: sanitized name -> original name
+    const toolNameMap = new Map<string, string>();
+    const tools = options?.tools?.map((t) => {
+      const sanitized = sanitizeToolName(t.name);
+      toolNameMap.set(sanitized, t.name);
+      return {
+        name: sanitized,
+        description: t.description,
+        input_schema: t.input_schema as Anthropic.Tool.InputSchema,
+      };
+    });
 
     // Format tool_choice
     let toolChoice: Anthropic.MessageCreateParams['tool_choice'] | undefined;
@@ -338,7 +359,7 @@ export class AnthropicProvider implements LLMProvider {
       } else if (options.toolChoice === 'none') {
         toolChoice = undefined; // Don't pass tools
       } else if (typeof options.toolChoice === 'object') {
-        toolChoice = { type: 'tool', name: options.toolChoice.name };
+        toolChoice = { type: 'tool', name: sanitizeToolName(options.toolChoice.name) };
       }
     }
 
@@ -357,13 +378,14 @@ export class AnthropicProvider implements LLMProvider {
     const textBlocks = response.content.filter((c) => c.type === 'text');
     const textContent = textBlocks.map((c) => c.type === 'text' ? c.text : '').join('');
 
-    // Extract tool_use content
+    // Extract tool_use content and map sanitized names back to original
     const toolUseBlocks = response.content.filter((c) => c.type === 'tool_use');
     const toolUse: LLMToolUse[] = toolUseBlocks.map((block) => {
       if (block.type === 'tool_use') {
+        const originalName = toolNameMap.get(block.name) || block.name;
         return {
           id: block.id,
-          name: block.name,
+          name: originalName,
           input: block.input as Record<string, unknown>,
         };
       }
