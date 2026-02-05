@@ -70,16 +70,33 @@ export class MessageEventService {
   ): void {
     // Broadcast to UI
     if (this.webChannel && typeof this.webChannel.broadcast === 'function') {
+      // Check if result contains audio data - if so, broadcast play_audio event
+      if (event.type === 'tool_execution_finished' && event.result !== undefined) {
+        const result = event.result as Record<string, unknown>;
+        if (result && typeof result === 'object' && 'audio' in result && typeof result.audio === 'string') {
+          // Broadcast play_audio event for immediate playback
+          this.webChannel.broadcast({
+            type: 'play_audio',
+            audio: result.audio,
+            mimeType: result.mimeType || 'audio/pcm;rate=24000',
+            voice: result.voice,
+            model: result.model,
+          });
+        }
+      }
+
       // Truncate result for broadcast (UI display) - only for finished events
+      // Exception: don't truncate audio data (needed for on-demand playback)
       let resultForBroadcast: unknown = undefined;
       if (event.type === 'tool_execution_finished' && event.result !== undefined) {
         try {
           const fullResult = JSON.stringify(event.result);
+          const result = event.result as Record<string, unknown>;
+          const hasAudioData = result && typeof result === 'object' && 'audio' in result && typeof result.audio === 'string';
           const limit = 10000;
-          resultForBroadcast =
-            fullResult.length > limit
-              ? fullResult.substring(0, limit) + '...(truncated)'
-              : fullResult;
+          resultForBroadcast = hasAudioData || fullResult.length <= limit
+            ? fullResult
+            : fullResult.substring(0, limit) + '...(truncated)';
         } catch {
           resultForBroadcast = String(event.result);
         }
@@ -127,9 +144,11 @@ export class MessageEventService {
       if (event.result !== undefined) {
         try {
           const fullResult = JSON.stringify(event.result);
-          // Don't truncate image data URLs
+          // Don't truncate image data URLs or audio data
           const hasImageData = fullResult.includes('data:image/');
-          const limit = hasImageData ? 5000000 : 10000;
+          const hasAudioData = typeof event.result === 'object' && event.result !== null &&
+            'audio' in event.result && typeof (event.result as Record<string, unknown>).audio === 'string';
+          const limit = (hasImageData || hasAudioData) ? 5000000 : 10000;
           resultStr =
             fullResult.length > limit
               ? fullResult.substring(0, limit) + '...(truncated)'

@@ -20,6 +20,7 @@ import { BrowserPreview } from './components/BrowserPreview';
 import RAGProjects from './components/RAGProjects';
 import { SourcePanel } from './components/SourcePanel';
 import { ChatInput } from './components/ChatInput';
+import { playAudioData } from './utils/audio';
 
 // Code block component with copy button and language header
 // Uses deferred rendering for faster initial display
@@ -245,6 +246,27 @@ function transformMessages(data) {
       citations: msg.citations,
     };
   });
+}
+
+// Audio player component - play button for on-demand playback
+function AudioPlayer({ audioBase64, mimeType }) {
+  const [isPlaying, setIsPlaying] = useState(false);
+
+  const handlePlay = async () => {
+    setIsPlaying(true);
+    await playAudioData(audioBase64, mimeType);
+    setIsPlaying(false);
+  };
+
+  return (
+    <button
+      className={`audio-play-button ${isPlaying ? 'playing' : ''}`}
+      onClick={handlePlay}
+      disabled={isPlaying}
+    >
+      {isPlaying ? '🔊 Playing...' : '▶️ Play'}
+    </button>
+  );
 }
 
 function App() {
@@ -481,6 +503,11 @@ function App() {
           },
         ];
       });
+    } else if (data.type === 'play_audio') {
+      // Play audio immediately (sent from speak tool via emitToolEvent)
+      if (data.audio && typeof data.audio === 'string') {
+        playAudioData(data.audio, data.mimeType || 'audio/pcm;rate=24000');
+      }
     } else if (data.type === 'tool_execution_finished') {
       // Only process tool results for current conversation
       if (!isForCurrentConversation(data.conversationId)) return;
@@ -1356,7 +1383,14 @@ function App() {
     return typeof value === 'string' && value.startsWith('data:image/');
   };
 
-  // Render tool result with special handling for images
+  // Helper to check if result contains audio data (tool-agnostic)
+  const isAudioResult = (obj) => {
+    if (!obj || typeof obj !== 'object') return false;
+    // Check for audio field with base64 data (long string)
+    return obj.audio && typeof obj.audio === 'string' && obj.audio.length > 100;
+  };
+
+  // Render tool result with special handling for images and audio
   const renderToolResult = (result) => {
     if (!result) return null;
 
@@ -1399,8 +1433,38 @@ function App() {
       }
     }
 
-    // If parsedResult is an object, look for any properties containing data URL images
+    // If parsedResult is an object, check for special content types
     if (typeof parsedResult === 'object' && parsedResult !== null) {
+      // Check for audio result (any tool returning audio data)
+      if (isAudioResult(parsedResult)) {
+        // Get non-audio properties to display alongside player
+        const nonAudioEntries = Object.entries(parsedResult).filter(
+          ([key]) => key !== 'audio'
+        );
+
+        return (
+          <div className="tool-result-with-audio">
+            <AudioPlayer
+              audioBase64={parsedResult.audio}
+              mimeType={parsedResult.mimeType || 'audio/pcm;rate=24000'}
+            />
+            {nonAudioEntries.length > 0 && (
+              <div className="tool-result-properties">
+                {nonAudioEntries.map(([key, value]) => (
+                  <div key={key} className="tool-result-property">
+                    <span className="tool-result-key">{key}:</span>{' '}
+                    <span className="tool-result-value">
+                      {typeof value === 'string' ? value : JSON.stringify(value)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      }
+
+      // Check for image data URLs
       const imageEntries = Object.entries(parsedResult).filter(
         ([, value]) => isDataUrlImage(value)
       );

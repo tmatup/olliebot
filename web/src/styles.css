@@ -2166,6 +2166,62 @@ html, body {
   margin-bottom: 0.25rem;
 }
 
+/* Tool Result with Audio */
+.tool-result-with-audio {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.audio-play-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.75rem;
+  background: var(--accent-color);
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.8rem;
+  font-weight: 500;
+  transition: background 0.2s, opacity 0.2s;
+  width: fit-content;
+}
+
+.audio-play-button:hover:not(:disabled) {
+  background: var(--accent-color-hover, #2563eb);
+}
+
+.audio-play-button:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.audio-play-button.playing {
+  background: #10b981;
+}
+
+.tool-result-properties {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.8rem;
+}
+
+.tool-result-property {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.tool-result-key {
+  color: var(--text-secondary);
+}
+
+.tool-result-value {
+  color: var(--text-primary);
+}
+
 /* Collapsible Agent Message (e.g., research-worker) */
 .collapsible-agent-message {
   max-width: 90%;

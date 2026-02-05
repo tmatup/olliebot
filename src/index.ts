@@ -39,6 +39,7 @@ import {
   HttpClientTool,
   DelegateTool,
   QueryRAGProjectTool,
+  SpeakTool,
 } from './tools/index.js';
 import { TaskManager } from './tasks/index.js';
 import { MemoryService } from './memory/index.js';
@@ -158,6 +159,11 @@ const CONFIG = {
   // Falls back to main provider/model if not specified
   deepResearchProvider: process.env.DEEP_RESEARCH_PROVIDER || process.env.MAIN_PROVIDER || 'anthropic',
   deepResearchModel: process.env.DEEP_RESEARCH_MODEL || process.env.MAIN_MODEL || 'claude-sonnet-4-20250514',
+
+  // Voice/TTS configuration
+  voiceProvider: (process.env.VOICE_PROVIDER || 'openai') as 'openai' | 'azure_openai',
+  voiceModel: process.env.VOICE_MODEL,
+  voiceVoice: process.env.VOICE_VOICE || 'alloy',
 };
 
 function createLLMProvider(provider: string, model: string): LLMProvider {
@@ -356,6 +362,26 @@ async function main(): Promise<void> {
 
   // Memory tool (always available)
   toolRunner.registerNativeTool(new RememberTool(memoryService));
+
+  // Speak tool (TTS - requires API key based on provider)
+  const voiceApiKey = CONFIG.voiceProvider === 'azure_openai'
+    ? CONFIG.azureOpenaiApiKey
+    : CONFIG.openaiApiKey;
+  if (voiceApiKey) {
+    toolRunner.registerNativeTool(
+      new SpeakTool({
+        apiKey: voiceApiKey,
+        provider: CONFIG.voiceProvider,
+        model: CONFIG.voiceModel,
+        voice: CONFIG.voiceVoice,
+        azureEndpoint: CONFIG.azureOpenaiEndpoint,
+        azureApiVersion: CONFIG.azureOpenaiApiVersion,
+      })
+    );
+    console.log(`[Init] Speak tool enabled (provider: ${CONFIG.voiceProvider}, model: ${CONFIG.voiceModel}, voice: ${CONFIG.voiceVoice})`);
+  } else {
+    console.log('[Init] SpeakTool not registered: no API key configured for voice provider');
+  }
 
   // Skill tools (for Agent Skills spec)
   toolRunner.registerNativeTool(new ReadSkillTool(CONFIG.skillsDir));
